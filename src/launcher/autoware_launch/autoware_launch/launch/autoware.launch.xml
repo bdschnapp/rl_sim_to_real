@@ -24,10 +24,10 @@
   <arg name="e2e_rl_path" default="/home/ben/Ben/Thesis/e2e_rl"/>
   <arg name="action_space" default="fixed_speed"/>
   <arg name="control_rate_hz" default="10.0"/>
-  <arg name="default_velocity_mps" default="5.0"/>
+  <arg name="default_velocity_mps" default="0.6"/>
   <arg name="forward_horizon_m" default="50.0"/>
   <arg name="centerline_resolution_m" default="0.5"/>
-  <arg name="world_scale" default="8.0"/>
+  <arg name="world_scale" default="1.0"/>
 
   <!-- Optional parameters -->
   <!-- Modules to be launched -->

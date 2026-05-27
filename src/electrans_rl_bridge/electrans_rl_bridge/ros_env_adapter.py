@@ -83,6 +83,33 @@ class ROSLineFollowingAdapter:
         self.env_class_name = env_class_name
         self.world_scale = float(world_scale)
 
+        # Always-on BEV debug renderer. When the policy env is itself a BEV env
+        # we reuse it; otherwise we spin up a separate BevObservationLineFollowingEnv
+        # that mirrors the policy env's state on every tick so the bridge can
+        # publish /rl_bridge/bev_image regardless of which obs pipeline the
+        # policy uses. Roughly a few MB of extra pygame surfaces in memory.
+        from Environments.LineFollowing import BevObservationLineFollowingEnv
+        from Environments.TractorTrailer import (
+            WINDOW_WIDTH, WINDOW_HEIGHT, METERS_PER_PIXEL,
+        )
+        if isinstance(self.env, BevObservationLineFollowingEnv):
+            self.debug_bev_env = self.env
+        else:
+            debug_kwargs = {"render_mode": None, "reward_mode": "dense", "fixed_speed": True}
+            # Filter to what BEV env actually accepts.
+            sig = inspect.signature(BevObservationLineFollowingEnv.__init__)
+            debug_kwargs = {k: v for k, v in debug_kwargs.items() if k in sig.parameters}
+            self.debug_bev_env = BevObservationLineFollowingEnv(**debug_kwargs)
+
+        # The env's pygame canvas spans [0, WORLD_W] × [0, WORLD_H] meters,
+        # with (0, 0) at the bottom-left corner. We always centre the truck
+        # in this canvas so the BEV crop captures the surrounding lane.
+        # All obs values (e_y, e_ψ, e_y_t, lidar) are differences between
+        # truck and centerline, so this constant offset is invisible to the
+        # policy.
+        self._world_offset_x = WINDOW_WIDTH * METERS_PER_PIXEL / 2.0
+        self._world_offset_y = WINDOW_HEIGHT * METERS_PER_PIXEL / 2.0
+
         # Raw ROS-frame state, transformed into truck-local on observation.
         self._raw_xs = None
         self._raw_ys = None
@@ -147,24 +174,45 @@ class ROSLineFollowingAdapter:
         # Centerline in truck-local frame, then scaled.
         dx = self._raw_xs - x
         dy = self._raw_ys - y
-        xs_local = (dx * c - dy * s) * self.world_scale
-        ys_local = (dx * s + dy * c) * self.world_scale
-        self.env.xx = xs_local.astype(np.float32)
-        self.env.yy = ys_local.astype(np.float32)
-        self.env._build_occupancy_grid()
+        xs_local = ((dx * c - dy * s) * self.world_scale).astype(np.float32)
+        ys_local = ((dx * s + dy * c) * self.world_scale).astype(np.float32)
 
-        v = self.env.vehicle
-        v.x = 0.0           # vehicle is at env origin
-        v.y = 0.0
-        v.p = 0.0           # facing +X
+        self._apply_state_to(self.env, xs_local, ys_local)
+        if self.debug_bev_env is not self.env:
+            self._apply_state_to(self.debug_bev_env, xs_local, ys_local)
+
+    def _apply_state_to(self, env, xs_local, ys_local):
+        """Push centerline + vehicle + trailer state into an env in truck-local
+        frame, then translate by the world-center offset so the pygame canvas
+        actually contains the action. Called for both the policy env and the
+        debug BEV env so they always agree on what's being rendered."""
+        env.xx = (xs_local + self._world_offset_x).astype(np.float32)
+        env.yy = (ys_local + self._world_offset_y).astype(np.float32)
+        env._build_occupancy_grid()
+
+        v = env.vehicle
+        v.x = self._world_offset_x   # vehicle at world centre, facing +X
+        v.y = self._world_offset_y
+        v.p = 0.0
         v.s = self._steering
         v.xd = self._xd * self.world_scale
 
-        # Trailer in env-local. With v.p = 0, hitch is at (-v.lr, 0); trailer
-        # axle sits behind hitch by trailer.L along trailer yaw.
-        hitch_x = -v.lr
-        hitch_y = 0.0
+        # Trailer in env-local. With v.p = 0, hitch is at (v.x - v.lr, v.y);
+        # trailer axle sits behind hitch by trailer.L along trailer yaw.
+        hitch_x = v.x - v.lr
+        hitch_y = v.y
         trailer_yaw = -self._hitch_angle  # = v.p - hitch_angle, v.p == 0
         v.trailer.yaw = trailer_yaw
         v.trailer.x = hitch_x - v.trailer.L * math.cos(trailer_yaw)
         v.trailer.y = hitch_y - v.trailer.L * math.sin(trailer_yaw)
+
+    def get_debug_bev_image(self):
+        """Return the 32x32 BEV image of the current state. Always available
+        (the adapter spins up a BEV env on construction even when the policy
+        doesn't use a BEV obs). Caller must have set ego + reference path."""
+        if not self._path_set or self._ego_pose is None:
+            return None
+        # If the policy env isn't BEV, _refresh_env may not have been called
+        # yet via get_observation; ensure both envs see fresh state here.
+        self._refresh_env()
+        return self.debug_bev_env._get_bev_image_obs()

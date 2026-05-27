@@ -14,12 +14,25 @@
   <!-- Bridge knobs -->
   <arg name="action_space" default="fixed_speed"/>            <!-- fixed_speed | variable_speed -->
   <arg name="control_rate_hz" default="10.0"/>
-  <arg name="default_velocity_mps" default="5.0"/>
+  <arg name="default_velocity_mps" default="0.6"/>
   <arg name="forward_horizon_m" default="50.0"/>
   <arg name="centerline_resolution_m" default="0.5"/>
-  <!-- Scale factor between training-time truck (semi, ~6 m trailer) and the
-       deployed vehicle. Set to ~8 for an AgileX-class 1/8 lab robot. -->
-  <arg name="world_scale" default="8.0"/>
+  <!-- Optional scaling applied to all positions before they reach the env.
+       Default 1.0 means the env operates at real ROS coordinates. Combined
+       with the e2erl_utils.config overrides in rl_bridge_node, which point
+       the env window/lane/vehicle dims at the AgileX lab scale, this gives
+       the policy obs values at real physical scale. Set above 1 to
+       artificially upscale obs values (legacy workaround for the
+       sim-real distribution mismatch when the policy was trained at
+       semi-truck scale). -->
+  <arg name="world_scale" default="1.0"/>
+
+  <!-- When true, relay /rl_bridge/bev_image onto the topic the existing
+       autoware.rviz RecognitionResultOnImage display already subscribes to,
+       so the BEV shows up in the main Autoware RViz without a second
+       rviz_default_plugins/Image display. Set false when traffic-light
+       recognition is also publishing onto that topic (real-robot setups). -->
+  <arg name="relay_bev_to_rviz_panel" default="true"/>
 
   <node pkg="electrans_rl_bridge" exec="lane_reference_node" name="lane_reference_node" output="screen">
     <param name="map_path" value="$(var map_path)"/>
@@ -36,4 +49,10 @@
     <param name="default_velocity_mps" value="$(var default_velocity_mps)"/>
     <param name="world_scale" value="$(var world_scale)"/>
   </node>
+
+  <group if="$(var relay_bev_to_rviz_panel)">
+    <node pkg="topic_tools" exec="relay" name="bev_to_rviz_panel_relay"
+          args="/rl_bridge/bev_image /perception/traffic_light_recognition/traffic_light/debug/rois"
+          output="screen"/>
+  </group>
 </launch>

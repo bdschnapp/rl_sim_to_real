@@ -32,10 +32,10 @@
   <arg name="lanelet2_map_file" default="lanelet2_map.osm"/>
   <arg name="action_space" default="fixed_speed"/>
   <arg name="control_rate_hz" default="10.0"/>
-  <arg name="default_velocity_mps" default="5.0"/>
+  <arg name="default_velocity_mps" default="0.6"/>
   <arg name="forward_horizon_m" default="50.0"/>
   <arg name="centerline_resolution_m" default="0.5"/>
-  <arg name="world_scale" default="8.0"/>
+  <arg name="world_scale" default="1.0"/>
   <include file="$(find-pkg-share electrans_rl_bridge)/launch/electrans_rl_bridge.launch.xml">
     <arg name="td3_model_path" value="$(var td3_model_path)"/>
     <arg name="e2e_rl_path" value="$(var e2e_rl_path)"/>

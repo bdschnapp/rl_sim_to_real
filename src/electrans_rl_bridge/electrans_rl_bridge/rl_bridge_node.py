@@ -78,6 +78,44 @@ class RLBridgeNode(Node):
 
         # ----- import e2e_rl + load model -----
         install_e2e_rl_on_path(self.e2e_rl_path)
+
+        # Override e2e_rl config to use AgileX lab measurements BEFORE
+        # importing env classes. Environments.TractorTrailer reads these at
+        # module load (WINDOW_WIDTH = config.window_width_px etc.), and the
+        # remaining lane/BEV knobs are read at runtime via getattr(config, …)
+        # — so this assignment is enough to drive both rendering and the
+        # occupancy grid / lidar at the real lab scale instead of the
+        # training-time semi-truck scale.
+        from e2erl_utils import config as e2erl_config
+        # Pygame world: 25 m × 20 m at 0.05 m/px = 500 × 400 px. Bounding box
+        # of the MVSL map plus ~5 m margin on each side.
+        e2erl_config.window_width_px = 500
+        e2erl_config.window_height_px = 400
+        e2erl_config.meters_per_pixel = 0.05
+        # Vehicle rendering: actual AgileX lab measurements. TRAILER_LENGTH
+        # is conflated with kinematic wheelbase in the env, so we use the
+        # wheelbase value (2.0 m).
+        e2erl_config.tractor_length_m = 1.0
+        e2erl_config.tractor_width_m = 0.65
+        e2erl_config.trailer_length_m = 2.0
+        e2erl_config.trailer_width_m = 0.33
+        # Lane corridor: LL7's bounds span y∈[-1.81, +1.0] = 2.81 m wide,
+        # so half-width 1.41 m. Small shoulder so lidar starts hitting the
+        # boundary just past the painted edge.
+        e2erl_config.lane_centerline_half_width_m = 1.41
+        e2erl_config.lane_shoulder_m = 0.20
+        e2erl_config.grid_res_m = 0.05
+        e2erl_config.lane_sample_ds_m = 0.10
+        # BEV: 5 m square crop captures truck + trailer + a few m of lane.
+        e2erl_config.bev_obs_crop_m = 5.0
+        e2erl_config.bev_zoom_scale = 1.0
+        e2erl_config.bev_offset_x_m = -1.0
+        # Vehicle CG-to-axle distances: AgileX wheelbase 0.65 m split ~half.
+        e2erl_config.tesla_model_s_vehicle_params = dict(
+            e2erl_config.tesla_model_s_vehicle_params,
+            lf=0.33, lr=0.32,
+        )
+
         # CNNFeatureExtractor must be importable in scope before TD3 is built
         # (it's referenced in the saved policy_kwargs).
         from Models.CNNFeatureExtractor import CNNFeatureExtractor  # noqa: F401
@@ -256,18 +294,20 @@ class RLBridgeNode(Node):
 
         # ---- debug publishes ----
         # Always publish the full observation as a flat float vector on
-        # /rl_bridge/state_vector. For BEV (dict) obs, additionally publish
-        # the 32x32 image on /rl_bridge/bev_image. Lidar+state and state-only
-        # obs skip the image publisher (obs is already flat).
+        # /rl_bridge/state_vector. Always publish the 32x32 BEV image on
+        # /rl_bridge/bev_image regardless of the policy's obs pipeline -- the
+        # adapter spins up a debug BEV renderer on construction so we can
+        # visualise what the env sees even when the policy uses state-only or
+        # lidar+state observations.
         if isinstance(obs, dict):
             vec = obs["vector"].astype(np.float32).flatten()
-            img = obs.get("image")
         else:
             vec = np.asarray(obs).astype(np.float32).flatten()
-            img = None
         vmsg = Float32MultiArray()
         vmsg.data = vec.tolist()
         self.pub_vec.publish(vmsg)
+
+        img = self.adapter.get_debug_bev_image()
 
         if img is not None:
             img_msg = Image()
