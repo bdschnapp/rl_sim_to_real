@@ -1,0 +1,107 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 1 – Base image
+# Installs ROS Humble, all system / third-party dependencies, and builds every
+# standard Autoware package.  Re-build this image only when upstream Autoware
+# packages change or new system dependencies are added.
+#
+#   docker build -f Dockerfile.base -t electrans-base:latest .
+# ─────────────────────────────────────────────────────────────────────────────
+FROM ros:humble-ros-base
+LABEL maintainer="Electrans"
+
+ARG DEBIAN_FRONTEND=noninteractive
+
+# ── Core build tools ──────────────────────────────────────────────────────────
+RUN apt-get update && apt-get install -y \
+    python3-colcon-common-extensions \
+    python3-colcon-mixin \
+    python3-rosdep \
+    python3-pip \
+    python3-vcstool \
+    python3-transforms3d \
+    git \
+    build-essential \
+    cmake \
+    wget \
+    curl \
+    nano \
+    iputils-ping \
+    # Autoware-required native libraries
+    libboost-all-dev \
+    libeigen3-dev \
+    libpcl-dev \
+    libopencv-dev \
+    libgeographic-dev \
+    libsqlite3-dev \
+    libcurl4-openssl-dev \
+    libyaml-cpp-dev \
+    libgoogle-glog-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── Python packages ────────────────────────────────────────────────────────────
+RUN pip install --no-cache-dir \
+    numpy \
+    "git+https://github.com/DLu/tf_transformations.git"
+
+# ── CasADi (C++ library with CMake support) ───────────────────────────────────
+# There is no official Ubuntu 22.04 apt package for CasADi's C++ headers, so we
+# build from source once here in the base image.
+RUN git clone --depth 1 --branch 3.6.6 \
+      https://github.com/casadi/casadi.git /tmp/casadi && \
+    cmake -S /tmp/casadi -B /tmp/casadi/build \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DWITH_PYTHON=OFF \
+      -DWITH_PYTHON3=OFF \
+      -DWITH_EXAMPLES=OFF \
+      -DWITH_IPOPT=OFF && \
+    cmake --build /tmp/casadi/build -j$(nproc) && \
+    cmake --install /tmp/casadi/build && \
+    ldconfig && \
+    rm -rf /tmp/casadi
+
+# ── Copy workspace source ─────────────────────────────────────────────────────
+COPY src /autoware_ws/src
+
+# ── ROS dependency installation via rosdep ────────────────────────────────────
+# apt-get update is required here because the lists were wiped in the earlier
+# layer.  rosdep install calls apt-get install internally so the cache must be
+# fresh.  We clean up again at the end to keep the layer small.
+# -r: continue despite packages missing from rosdep database (e.g. CasADi).
+RUN apt-get update && \
+    rosdep update && \
+    rosdep install --from-paths /autoware_ws/src --ignore-src -r -y \
+      --skip-keys "casadi" && \
+    rm -rf /var/lib/apt/lists/*
+
+# ── Build all standard packages ───────────────────────────────────────────────
+# Custom Electrans packages are excluded here; they are built in Phase 2.
+WORKDIR /autoware_ws
+RUN /bin/bash -c "\
+    source /opt/ros/humble/setup.bash && \
+    MAKEFLAGS="-j 4" \
+    colcon build \
+      --cmake-args -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF \
+      --executor sequential \
+      --packages-ignore \
+        autoware_trailer_path_planner \
+        autoware_trailer_mpc_controller \
+        electrans_robot_vehicle_launch \
+        electrans_robot_vehicle_description \
+        electrans_robot_sensor_kit_launch \
+        electrans_robot_sensor_launch \
+        electrans_robot_sensor_kit_description \
+      2>&1 | tee /autoware_ws/build.log" && \
+    echo "==> Phase 1 build complete"
+
+# ── Strip build artefacts to keep image size manageable ──────────────────────
+# The install/ tree is all that is needed at runtime / as a base layer.
+RUN rm -rf /autoware_ws/build /autoware_ws/log /autoware_ws/src
+
+# ── Environment ───────────────────────────────────────────────────────────────
+ENV RMW_IMPLEMENTATION="rmw_fastrtps_cpp"
+ENV ROS_DISTRO="humble"
+ENV ROS_DOMAIN_ID="0"
+ENV ROS_LOCALHOST_ONLY="0"
+ENV ROS_PYTHON_VERSION="3"
+ENV ROS_VERSION="2"
+ENV FASTDDS_BUILTIN_TRANSPORTS="UDPv4"

@@ -1,0 +1,59 @@
+<?xml version="1.0"?>
+<launch>
+    <!--Publish sensors to local UTM Dynamic Transforms, updated by Minghao 2024July25-->
+    <!-- <node name="sensors2localUTMpublisher" pkg="transform_publisher" type="transform_sensors2local_UTM.py" output="screen"> </node> -->
+
+    <!--Publish RS_BP_F to RS32 Static Transform - 2024July25-->
+    <!-- <node pkg="tf" type="static_transform_publisher" name="rslidar_BP_F_tf_broadcaster" args="-0.226752 -0.818097 1.2446 2.38866 -3.12403 0.0767911 rslidar_front rslidar_BP_F 50" /> -->
+    <!--Publish RS_BP_F to RS32 Static Transform - 2024Oct22-->
+    <node pkg="tf" type="static_transform_publisher" name="rslidar_BP_F_tf_broadcaster" args="-0.179776 -0.820127 1.159228 -0.760198 -0.031415 -3.060172 rslidar_front rslidar_BP_F 50" />
+    
+    <!--Publish RS_BP_R to RS32 Static Transform - 2024July25-->
+    <!-- <node pkg="tf" type="static_transform_publisher" name="rslidar_BP_R_tf_broadcaster" args="-3.842875 0.830086 1.219811 2.384743 0.023262 -3.092284 rslidar_front rslidar_BP_R 50" /> -->
+    <!--Publish RS_BP_R to RS32 Static Transform - 2024Oct22-->
+    <node pkg="tf" type="static_transform_publisher" name="rslidar_BP_R_tf_broadcaster" args="-3.739 1.257 -0.117 -3.142 -0.014 0.130 rslidar_BP_F rslidar_BP_R 50" />
+
+    <!--Publish left_cam to RS32 Static Transform - 2024Aug14-->
+    <node pkg="tf" type="static_transform_publisher" name="left_cam_tf_broadcaster" args="-0.331232 0.679769 0.951130 -0.773140 -0.113529 -1.870607 rslidar_front left_cam 50" />
+
+    <!--Publish center_cam to RS32 Static Transform - 2024July25-->
+    <node pkg="tf" type="static_transform_publisher" name="center_cam_tf_broadcaster" args="-0.345454 -0.021196 1.278753 -1.560915 -0.003565 -1.717593 rslidar_front center_cam 50" />
+
+    <!--Publish right_cam to RS32 Static Transform - 2024July25-->
+    <node pkg="tf" type="static_transform_publisher" name="right_cam_tf_broadcaster" args="-0.087425 0.020456 0.076351 1.446735 0.044657 1.240083 rslidar_BP_F right_cam 50" />
+    
+    <!--Publish RS_BP_R to Back Center Camera Static Transform - 2024Sep16-->
+    <node pkg="tf" type="static_transform_publisher" name="back_cam_tf_broadcaster" args="-0.748805 -0.474929 -0.089049 -2.309122 -0.085985 -1.458080 rslidar_BP_R back_cam 50" />
+
+    <!--Publish RS_BP_R to Back Left (Merging) Camera Static Transform - 2024Sep12-->
+    <node pkg="tf" type="static_transform_publisher" name="merging_cam_tf_broadcaster" args="-2.286693 2.267139 -0.305526 -1.560967 -0.392406 -1.336766 rslidar_BP_R merging_cam 50" />
+
+    <!--Publish RS32 to Applanix Static Transform - 2024Aug29-->
+    <!-- <node pkg="tf" type="static_transform_publisher" name="front_lidar_applanix_broadcaster" args="2.2765325 0.027056878 1.37045952 0.0038363 0.005011 3.13871841 applanix rslidar_front 50" /> -->
+    <!--Publish RS32 to Applanix Static Transform - 2024Oct22-->
+    <!-- <node pkg="tf" type="static_transform_publisher" name="front_lidar_applanix_broadcaster" args="2.186902 0.036225 1.340800 -0.000461 -0.019768 3.137177 applanix rslidar_front 50" /> -->
+    <!--Publish RS32 to Applanix Static Transform - 2025May30-->
+    <!-- <node pkg="tf" type="static_transform_publisher" name="front_lidar_applanix_broadcaster" args="2.2214 0.0886 1.6226 -0.0008 -0.0357 3.1280 applanix rslidar_front 50" /> -->
+    <node pkg="tf" type="static_transform_publisher" name="front_lidar_baselink_broadcaster" args="3.3587 0.0 0.9 0.0187 0.0236 -0.0068 base_link rslidar_front 50" />
+    <!--Publish Applanix to Base_Link Static Transform - 2025May30-->
+    <node pkg="tf" type="static_transform_publisher" name="applanix_baselink_broadcaster" args="0.86 -0.12 2.443367 0.021 0.0 0.0 base_link applanix 50" />
+
+    <!--Publish Merging Cam Tilted to Merging Camera Ortho Static Transform - Sep2022-->
+    <!-- <node pkg="tf" type="static_transform_publisher" name="merging_cam_ortho_tf_broadcaster" args="0 0 0 0.0 -0.12217304763960307 0.3141592653589793 merging_cam merging_cam_ortho 50" /> -->
+
+    
+    <!--Publish RS_BP_R to Merging Camera Static Transform - Sep2022-->
+    <!-- <node pkg="tf" type="static_transform_publisher" name="shoulder_cam_tf_broadcaster" args="-0.19764628  0.33167773 -0.0780741 3.126473716989226 -0.07060930135845125 1.4275436959457155 rslidar_BP_F usb_cam 50" /> -->
+
+    <node pkg="tf" type="static_transform_publisher" name="shoulder_cam_tf_broadcaster" args="-0.218673 0.271857 -0.239696 -3.126687 -0.130044 1.524568 rslidar_BP_F backright_cam 50" />
+
+    <!--Publish LoadingZoneLidar to RS3 Static Transform - Jan2025-->
+    <node pkg="tf" type="static_transform_publisher" name="loadingzone_lidar_tf_broadcaster" args="-1.65 -0.65 1.3 -1.571 0 3.154 rslidar_front unilidar_lidar 50" />
+
+    <!--Publish Front Radar to RS3 Static Transform - Feb2025-->
+    <node pkg="tf" type="static_transform_publisher" name="front_radar_tf_broadcaster" args="0 0 0 0 0 0 rslidar_front radar_front 50" />\
+
+    <!--Publish Rear Radar to RS3 Static Transform - Feb2025-->
+    <node pkg="tf" type="static_transform_publisher" name="rear_radar_tf_broadcaster" args="-3.9 0 0 3.141 0 0 rslidar_front radar_rear 50" />
+
+</launch>

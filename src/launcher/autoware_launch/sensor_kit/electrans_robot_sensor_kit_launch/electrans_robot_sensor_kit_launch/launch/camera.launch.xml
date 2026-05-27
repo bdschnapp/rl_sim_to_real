@@ -1,0 +1,23 @@
+<launch>
+
+
+<!-- shuttle bus camera mapping: -->
+
+
+  <!-- Camera 0: back -->
+  <!-- Camera 1: back-right -->
+  <!-- Camera 2: center -->
+  <!-- Camera 3: left -->
+ <!-- Camera 4: merging -->
+  <!-- Camera 5: right -->
+
+  
+  <node pkg="image_transport" exec="republish" name="republish_cam2_image"
+        args="compressed raw --ros-args -r in/compressed:=/Front_camera/pylon_ros2_camera_node/Cam_image_raw/compressed -r out:=/sensing/camera/camera2/image_rect_color" />
+
+  <node pkg="topic_tools" exec="relay" name="relay_cam2_info">
+    <param name="input_topic" value="/Front_camera/pylon_ros2_camera_node/camera_info"/>
+    <param name="output_topic" value="/sensing/camera/camera2/camera_info"/>
+    <param name="lazy" value="false"/>
+  </node>
+</launch>

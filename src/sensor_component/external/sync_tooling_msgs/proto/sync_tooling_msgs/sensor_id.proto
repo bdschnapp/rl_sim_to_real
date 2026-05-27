@@ -1,0 +1,7 @@
+syntax = "proto3";
+
+// A unique clock ID for a sensor. It is identical to the frame ID of the sensor.
+message SensorId {
+  // The frame ID of the sensor.
+  string frame_id = 1;
+}

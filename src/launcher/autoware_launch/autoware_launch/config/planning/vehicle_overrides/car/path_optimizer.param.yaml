@@ -1,0 +1,93 @@
+/**:
+  ros__parameters:
+    option:
+      enable_skip_optimization: false
+      enable_reset_prev_optimization: false
+      enable_outside_drivable_area_stop: true
+      use_footprint_polygon_for_outside_drivable_area_check: false
+
+      debug:
+        enable_pub_debug_marker: false
+        enable_pub_extra_debug_marker: false
+        enable_debug_info: false
+        enable_calculation_time_info: false
+
+    common:
+      output_delta_arc_length: 0.5
+      output_backward_traj_length: 5.0
+      vehicle_stop_margin_outside_drivable_area: 0.0
+
+    replan:
+      max_path_shape_around_ego_lat_dist: 2.0
+      max_path_shape_forward_lon_dist: 100.0
+      max_path_shape_forward_lat_dist: 0.1
+      max_ego_moving_dist: 5.0
+      max_goal_moving_dist: 15.0
+      max_delta_time_sec: 0.0
+
+    mpt:
+      option:
+        steer_limit_constraint: false
+        visualize_sampling_num: 1
+        enable_manual_warm_start: false
+        enable_warm_start: false
+        enable_optimization_validation: false
+
+      common:
+        num_points: 100
+        delta_arc_length: 1.0
+
+      clearance:
+        hard_clearance_from_road: 0.0
+        soft_clearance_from_road: 0.1
+
+      weight:
+        soft_collision_free_weight: 1.0
+        lat_error_weight: 1.0
+        yaw_error_weight: 0.0
+        yaw_error_rate_weight: 0.0
+        steer_input_weight: 1.0
+        steer_rate_weight: 1.0
+        terminal_lat_error_weight: 100.0
+        terminal_yaw_error_weight: 100.0
+        goal_lat_error_weight: 1000.0
+        goal_yaw_error_weight: 1000.0
+
+      avoidance:
+        max_bound_fixing_time: 1.0
+        max_longitudinal_margin_for_bound_violation: 1.0
+        max_avoidance_cost: 0.5
+        avoidance_cost_margin: 0.0
+        avoidance_cost_band_length: 5.0
+        avoidance_cost_decrease_rate: 0.05
+        min_drivable_width: 0.2
+
+        weight:
+          lat_error_weight: 0.0
+          yaw_error_weight: 10.0
+          steer_input_weight: 100.0
+
+      collision_free_constraints:
+        option:
+          l_inf_norm: true
+          soft_constraint: true
+          hard_constraint: false
+
+        vehicle_circles:
+          method: "fitting_uniform_circle"
+
+          bicycle_model:
+            num_for_calculation: 3
+            front_radius_ratio: 1.0
+            rear_radius_ratio: 1.0
+
+          uniform_circle:
+            num: 3
+            radius_ratio: 1.0
+
+          fitting_uniform_circle:
+            num: 3
+
+      validation:
+        max_lat_error: 5.0
+        max_yaw_error: 1.046

@@ -1,0 +1,22 @@
+robot_trailer_footprint:
+  ros__parameters:
+    publish_frame: map         # or "odom"
+    base_frame: base_link
+    trailer_frame: trailer_chassis
+
+    # Robot body footprint
+    robot_length: 1.20
+    robot_width: 0.80
+    robot_offset_x: 0.0
+    robot_offset_y: 0.0
+    robot_yaw: 0.0
+
+    # Trailer body footprint
+    trailer_length: 2.5
+    trailer_width: 1.2
+    trailer_offset_x: 0.0
+    trailer_offset_y: 0.0
+    trailer_yaw: 0.0
+
+    # Publishing rate
+    rate_hz: 10.0

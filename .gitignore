@@ -1,0 +1,37 @@
+*.tar
+*.tar.*
+*.jar
+*.exe
+*.msi
+*.deb
+*.zip
+*.tgz
+*.log
+*.log.*
+*.sig
+
+pkg/
+# src/
+log/
+!src/universe/external/eagleye/eagleye_rt/log/
+!src/universe/external/eagleye/eagleye_rt/log/.gitkeep
+install/
+build/
+*.pyc
+*.pyo
+*.pyd
+
+# vscode
+.vscode
+tempCodeRunnerFile.python
+
+# JetBrains
+.idea
+
+# Claude
+.claude
+CLAUDE.md
+
+# VCS
+*.patch
+src/.codex

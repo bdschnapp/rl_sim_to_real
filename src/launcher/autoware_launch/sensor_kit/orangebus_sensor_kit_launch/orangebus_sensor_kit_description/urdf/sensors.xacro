@@ -1,0 +1,138 @@
+<?xml version="1.0"?>
+<robot name="vehicle" xmlns:xacro="http://ros.org/wiki/xacro">
+  <xacro:arg name="config_dir" default="$(find orangebus_sensor_kit_description)/config"/>
+  <xacro:property name="calibration" value="${xacro.load_yaml('$(arg config_dir)/sensors_calibration.yaml')}"/>
+
+  <!-- Lidars -->
+  <xacro:include filename="$(find velodyne_description)/urdf/ROBOSENSE-32.urdf.xacro"/>
+  <xacro:ROBOSENSE-32 parent="base_link" name="rslidar_front" topic="/rslidar_points_front" hz="10" lasers="32" samples="2187" gpu="false">
+    <origin
+      xyz="${calibration['base_link']['rslidar_front']['x']}
+           ${calibration['base_link']['rslidar_front']['y']}
+           ${calibration['base_link']['rslidar_front']['z']}"
+      rpy="${calibration['base_link']['rslidar_front']['roll']}
+           ${calibration['base_link']['rslidar_front']['pitch']}
+           ${calibration['base_link']['rslidar_front']['yaw']}"
+    />
+  </xacro:ROBOSENSE-32>
+
+  <xacro:ROBOSENSE-32 parent="base_link" name="rslidar_BP_F" topic="/rslidar_points_BP_F" hz="10" lasers="32" samples="2187" gpu="false">
+    <origin
+      xyz="${calibration['base_link']['rslidar_BP_F']['x']}
+           ${calibration['base_link']['rslidar_BP_F']['y']}
+           ${calibration['base_link']['rslidar_BP_F']['z']}"
+      rpy="${calibration['base_link']['rslidar_BP_F']['roll']}
+           ${calibration['base_link']['rslidar_BP_F']['pitch']}
+           ${calibration['base_link']['rslidar_BP_F']['yaw']}"
+    />
+  </xacro:ROBOSENSE-32>
+
+  <xacro:ROBOSENSE-32 parent="base_link" name="rslidar_BP_R" topic="/rslidar_points_BP_R" hz="10" lasers="32" samples="2187" gpu="false">
+    <origin
+      xyz="${calibration['base_link']['rslidar_BP_R']['x']}
+           ${calibration['base_link']['rslidar_BP_R']['y']}
+           ${calibration['base_link']['rslidar_BP_R']['z']}"
+      rpy="${calibration['base_link']['rslidar_BP_R']['roll']}
+           ${calibration['base_link']['rslidar_BP_R']['pitch']}
+           ${calibration['base_link']['rslidar_BP_R']['yaw']}"
+    />
+  </xacro:ROBOSENSE-32>
+
+  <!-- Cameras -->
+  <xacro:include filename="$(find camera_description)/urdf/orangebus_monocular_camera.xacro"/>
+  <xacro:orangebus_monocular_camera_macro
+      name="center_cam"
+      parent="base_link"
+      namespace="/pylon_camera_node_center"
+      x="${calibration['base_link']['center_cam']['x']}"
+      y="${calibration['base_link']['center_cam']['y']}"
+      z="${calibration['base_link']['center_cam']['z']}"
+      roll="${calibration['base_link']['center_cam']['roll']}"
+      pitch="${calibration['base_link']['center_cam']['pitch']}"
+      yaw="${calibration['base_link']['center_cam']['yaw']}"
+      fps="10"
+      width="1920"
+      height="1200"
+      fov="1.3"
+    />
+
+  <xacro:orangebus_monocular_camera_macro
+      name="left_cam"
+      parent="base_link"
+      namespace="/pylon_camera_node_left"
+      x="${calibration['base_link']['left_cam']['x']}"
+      y="${calibration['base_link']['left_cam']['y']}"
+      z="${calibration['base_link']['left_cam']['z']}"
+      roll="${calibration['base_link']['left_cam']['roll']}"
+      pitch="${calibration['base_link']['left_cam']['pitch']}"
+      yaw="${calibration['base_link']['left_cam']['yaw']}"
+      fps="10"
+      width="1920"
+      height="1200"
+      fov="1.3"
+    />
+
+  <xacro:orangebus_monocular_camera_macro
+      name="right_cam"
+      parent="base_link"
+      namespace="/pylon_camera_node_right"
+      x="${calibration['base_link']['right_cam']['x']}"
+      y="${calibration['base_link']['right_cam']['y']}"
+      z="${calibration['base_link']['right_cam']['z']}"
+      roll="${calibration['base_link']['right_cam']['roll']}"
+      pitch="${calibration['base_link']['right_cam']['pitch']}"
+      yaw="${calibration['base_link']['right_cam']['yaw']}"
+      fps="10"
+      width="1920"
+      height="1200"
+      fov="1.3"
+    />
+
+  <xacro:orangebus_monocular_camera_macro
+      name="back_cam"
+      parent="base_link"
+      namespace="/pylon_camera_node_back"
+      x="${calibration['base_link']['back_cam']['x']}"
+      y="${calibration['base_link']['back_cam']['y']}"
+      z="${calibration['base_link']['back_cam']['z']}"
+      roll="${calibration['base_link']['back_cam']['roll']}"
+      pitch="${calibration['base_link']['back_cam']['pitch']}"
+      yaw="${calibration['base_link']['back_cam']['yaw']}"
+      fps="10"
+      width="1920"
+      height="1200"
+      fov="1.3"
+    />
+
+  <xacro:orangebus_monocular_camera_macro
+      name="merging_cam"
+      parent="base_link"
+      namespace="/pylon_camera_node_merging"
+      x="${calibration['base_link']['merging_cam']['x']}"
+      y="${calibration['base_link']['merging_cam']['y']}"
+      z="${calibration['base_link']['merging_cam']['z']}"
+      roll="${calibration['base_link']['merging_cam']['roll']}"
+      pitch="${calibration['base_link']['merging_cam']['pitch']}"
+      yaw="${calibration['base_link']['merging_cam']['yaw']}"
+      fps="10"
+      width="1920"
+      height="1200"
+      fov="1.3"
+    />
+
+  <xacro:orangebus_monocular_camera_macro
+    name="backright_cam"
+    parent="base_link"
+    namespace="/pylon_camera_node_backright"
+    x="${calibration['base_link']['backright_cam']['x']}"
+    y="${calibration['base_link']['backright_cam']['y']}"
+    z="${calibration['base_link']['backright_cam']['z']}"
+    roll="${calibration['base_link']['backright_cam']['roll']}"
+    pitch="${calibration['base_link']['backright_cam']['pitch']}"
+    yaw="${calibration['base_link']['backright_cam']['yaw']}"
+    fps="10"
+    width="1920"
+    height="1200"
+    fov="1.3"
+  />
+</robot>

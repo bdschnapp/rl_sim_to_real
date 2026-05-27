@@ -1,0 +1,9 @@
+.cache
+.venv
+build
+install
+log
+dist
+*_pb2.py*
+__pycache__
+*.pyc

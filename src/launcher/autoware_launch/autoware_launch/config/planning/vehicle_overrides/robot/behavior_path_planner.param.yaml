@@ -1,0 +1,26 @@
+/**:
+  ros__parameters:
+    traffic_light_signal_timeout: 1.0
+
+    planning_hz: 10.0
+    backward_path_length: 1.0        # [m] (car default: 5.0)
+    forward_path_length: 20.0        # [m] (car default: 300.0)
+    backward_length_buffer_for_end_of_pull_over: 0.5  # [m] (car default: 5.0)
+    backward_length_buffer_for_end_of_pull_out: 0.5   # [m] (car default: 5.0)
+    minimum_pull_over_length: 3.0    # [m] (car default: 16.0)
+
+    refine_goal_search_radius_range: 1.0  # [m] (car default: 7.5)
+
+    # parameters for turn signal decider
+    turn_signal_intersection_search_distance: 5.0    # [m] (car default: 30.0)
+    turn_signal_intersection_angle_threshold_deg: 15.0
+    turn_signal_minimum_search_distance: 2.0         # [m] (car default: 10.0)
+    turn_signal_search_time: 3.0
+    turn_signal_shift_length_threshold: 0.1          # [m] (car default: 0.3)
+    turn_signal_remaining_shift_length_threshold: 0.05  # [m] (car default: 0.1)
+    turn_signal_on_swerving: true
+
+    enable_akima_spline_first: false
+    enable_cog_on_centerline: false
+    input_path_interval: 0.2         # [m] CRITICAL (car default: 2.0) — 2m on a 1m vehicle loses path shape
+    output_path_interval: 0.2        # [m] CRITICAL (car default: 2.0)

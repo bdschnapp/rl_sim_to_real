@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<!--
+  Planning component intentionally stubbed.
+
+  Autoware planning, behavior, and motion packages were removed; planning is being
+  replaced by an external RL agent. The kept Autoware stack still surfaces some
+  module-preset and vehicle-model args via the top-level autoware.launch.xml, so
+  they are accepted here as no-ops to keep the existing call sites compiling.
+
+  Next step (out of scope here): a centerline-from-lanelet2 publisher + a
+  goal/direction lane selector node will be added so the RL bridge can consume an
+  active reference path.
+-->
+<launch>
+  <arg name="module_preset" default="default"/>
+  <arg name="enable_all_modules_auto_mode" default="false"/>
+  <arg name="is_simulation" default="false"/>
+  <arg name="use_sim_time" default="false"/>
+  <arg name="vehicle_model" default="sample_vehicle"/>
+</launch>

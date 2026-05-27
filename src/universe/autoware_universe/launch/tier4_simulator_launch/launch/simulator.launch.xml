@@ -1,0 +1,190 @@
+<launch>
+  <!--
+    Pruned simulator launch.
+
+    Removed:
+      - object_recognition tracking (autoware_multi_object_tracker) + prediction
+        (autoware_map_based_prediction) — the heavy DL detection pipeline was deleted.
+      - autoware_perception_online_evaluator — evaluator deleted.
+      - autoware_elevation_map_loader — deleted (single-frame outlier filter is disabled).
+      - traffic_light_recognition sub-launch — deleted.
+      - autoware_scenario_simulator_v2_adapter — adapter deleted.
+      - pose_twist_estimator path (mode `pose_twist_estimator`) — uses gyro_odometer and
+        pose_twist_fusion_filter, which still exist; left intact.
+
+    Kept:
+      - autoware_fault_injection (scenario simulation).
+      - autoware_dummy_perception_publisher (and its empty_objects_publisher fallback).
+      - Occupancy grid map (unless scenario_simulation).
+      - localization (api / pose_twist_estimator modes).
+      - autoware_vehicle_door_simulator, autoware_simple_planning_simulator,
+        autoware_trailer_state_visualizer.
+  -->
+
+  <!-- Param paths still consumed by surviving sub-launches -->
+  <arg name="fault_injection_param_path"/>
+  <arg name="laserscan_based_occupancy_grid_map_param_path"/>
+  <arg name="occupancy_grid_map_updater"/>
+  <arg name="occupancy_grid_map_updater_param_path"/>
+
+  <arg name="ekf_localizer_param_path"/>
+  <arg name="stop_filter_param_path"/>
+  <arg name="pose_initializer_param_path"/>
+  <arg name="twist2accel_param_path"/>
+
+  <!-- Legacy args still passed by callers; accepted as no-ops -->
+  <arg name="obstacle_segmentation_ground_segmentation_elevation_map_param_path" default=""/>
+  <arg name="localization_error_monitor_param_path" default=""/>
+  <arg name="each_traffic_light_map_based_detector_param_path" default=""/>
+  <arg name="traffic_light_fine_detector_param_path" default=""/>
+  <arg name="yolox_traffic_light_detector_param_path" default=""/>
+  <arg name="car_traffic_light_classifier_param_path" default=""/>
+  <arg name="pedestrian_traffic_light_classifier_param_path" default=""/>
+  <arg name="traffic_light_roi_visualizer_param_path" default=""/>
+  <arg name="traffic_light_occlusion_predictor_param_path" default=""/>
+  <arg name="traffic_light_multi_camera_fusion_param_path" default=""/>
+  <arg name="traffic_light_arbiter_param_path" default=""/>
+  <arg name="crosswalk_traffic_light_estimator_param_path" default=""/>
+
+  <arg name="launch_simulator_perception_modules" default="true"/>
+  <arg name="use_pointcloud_container" default="true"/>
+
+  <arg name="launch_dummy_perception"/>
+  <arg name="launch_dummy_vehicle"/>
+  <arg name="localization_sim_mode" description="'none', 'api', or 'pose_twist_estimator'"/>
+  <arg name="launch_dummy_doors"/>
+  <arg name="launch_scenario_simulator_v2_adapter"/>
+  <arg name="vehicle_info_param_file"/>
+  <arg name="raw_vehicle_cmd_converter_param_path"/>
+
+  <arg name="perception/enable_detection_failure" default="true"/>
+  <arg name="perception/enable_object_recognition" default="false"/>
+  <arg name="perception/enable_traffic_light" default="false"/>
+  <arg name="perception/use_base_link_z" default="true"/>
+  <arg name="sensing/visible_range" default="300.0"/>
+
+  <arg name="vehicle_model"/>
+  <arg name="initial_engage_state" default="true"/>
+  <arg name="launch_trailer_state_visualizer" default="false"/>
+
+  <let name="vehicle_model_pkg" value="$(find-pkg-share $(var vehicle_model)_description)"/>
+
+  <group if="$(var launch_simulator_perception_modules)">
+    <group if="$(var scenario_simulation)">
+      <include file="$(find-pkg-share autoware_fault_injection)/launch/fault_injection.launch.xml">
+        <arg name="config_file" value="$(var fault_injection_param_path)"/>
+      </include>
+    </group>
+
+    <group if="$(var launch_dummy_perception)">
+      <include file="$(find-pkg-share autoware_dummy_perception_publisher)/launch/dummy_perception_publisher.launch.xml">
+        <arg name="real" value="$(var perception/enable_detection_failure)"/>
+        <arg name="use_object_recognition" value="$(var perception/enable_object_recognition)"/>
+        <arg name="use_base_link_z" value="$(var perception/use_base_link_z)"/>
+        <arg name="visible_range" value="$(var sensing/visible_range)"/>
+      </include>
+    </group>
+
+    <group unless="$(var scenario_simulation)">
+      <push-ros-namespace namespace="occupancy_grid_map"/>
+      <include file="$(find-pkg-share tier4_perception_launch)/launch/occupancy_grid_map/probabilistic_occupancy_grid_map.launch.xml">
+        <arg name="input_obstacle_pointcloud" value="true"/>
+        <arg name="input_obstacle_and_raw_pointcloud" value="false"/>
+        <arg name="input/obstacle_pointcloud" value="/perception/obstacle_segmentation/pointcloud"/>
+        <arg name="output" value="/perception/occupancy_grid_map/map"/>
+        <arg name="occupancy_grid_map_method" value="laserscan_based_occupancy_grid_map"/>
+        <arg name="occupancy_grid_map_param_path" value="$(var laserscan_based_occupancy_grid_map_param_path)"/>
+        <arg name="occupancy_grid_map_updater" value="$(var occupancy_grid_map_updater)"/>
+        <arg name="occupancy_grid_map_updater_param_path" value="$(var occupancy_grid_map_updater_param_path)"/>
+        <arg name="use_pointcloud_container" value="$(var use_pointcloud_container)"/>
+      </include>
+    </group>
+
+    <group>
+      <push-ros-namespace namespace="perception"/>
+      <!-- empty objects publisher: keeps downstream consumers happy without object recognition -->
+      <group>
+        <push-ros-namespace namespace="object_recognition"/>
+        <node pkg="autoware_dummy_perception_publisher" exec="empty_objects_publisher" name="empty_objects_publisher" output="screen">
+          <remap from="~/output/objects" to="/perception/object_recognition/objects"/>
+        </node>
+      </group>
+    </group>
+  </group>
+
+  <!-- Localization -->
+  <group if="$(eval '&quot;$(var localization_sim_mode)&quot;==&quot;none&quot;')"/>
+
+  <group if="$(eval '&quot;$(var localization_sim_mode)&quot;==&quot;api&quot;')">
+    <include file="$(find-pkg-share autoware_pose_initializer)/launch/pose_initializer.launch.xml">
+      <arg name="user_defined_initial_pose/enable" value="false"/>
+      <arg name="user_defined_initial_pose/pose" value="[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]"/>
+      <arg name="ndt_enabled" value="false"/>
+      <arg name="gnss_enabled" value="false"/>
+      <arg name="ekf_enabled" value="false"/>
+      <arg name="yabloc_enabled" value="false"/>
+      <arg name="stop_check_enabled" value="false"/>
+      <arg name="config_file" value="$(var pose_initializer_param_path)"/>
+    </include>
+  </group>
+
+  <group if="$(eval '&quot;$(var localization_sim_mode)&quot;==&quot;pose_twist_estimator&quot;')">
+    <group>
+      <push-ros-namespace namespace="localization"/>
+      <group>
+        <push-ros-namespace namespace="util"/>
+        <include file="$(find-pkg-share autoware_pose_initializer)/launch/pose_initializer.launch.xml">
+          <arg name="user_defined_initial_pose/enable" value="false"/>
+          <arg name="user_defined_initial_pose/pose" value="[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]"/>
+          <arg name="ndt_enabled" value="false"/>
+          <arg name="gnss_enabled" value="false"/>
+          <arg name="ekf_enabled" value="true"/>
+          <arg name="yabloc_enabled" value="false"/>
+          <arg name="stop_check_enabled" value="false"/>
+          <arg name="config_file" value="$(var pose_initializer_param_path)"/>
+        </include>
+      </group>
+      <group>
+        <push-ros-namespace namespace="twist_estimator"/>
+        <include file="$(find-pkg-share tier4_localization_launch)/launch/pose_twist_estimator/gyro_odometer.launch.xml"/>
+      </group>
+      <group>
+        <push-ros-namespace namespace="pose_twist_fusion_filter"/>
+        <include file="$(find-pkg-share tier4_localization_launch)/launch/pose_twist_fusion_filter/pose_twist_fusion_filter.launch.xml"/>
+      </group>
+    </group>
+    <group>
+      <push-ros-namespace namespace="sensing"/>
+      <arg name="input_vehicle_velocity_topic" default="/vehicle/status/velocity_status"/>
+      <arg name="output_twist_with_covariance" default="/sensing/vehicle_velocity_converter/twist_with_covariance"/>
+      <arg name="config_file" default="$(find-pkg-share autoware_vehicle_velocity_converter)/config/vehicle_velocity_converter.param.yaml"/>
+      <node pkg="autoware_vehicle_velocity_converter" exec="autoware_vehicle_velocity_converter_node" output="both">
+        <param from="$(var config_file)"/>
+        <remap from="velocity_status" to="$(var input_vehicle_velocity_topic)"/>
+        <remap from="twist_with_covariance" to="$(var output_twist_with_covariance)"/>
+      </node>
+    </group>
+  </group>
+
+  <group if="$(var launch_dummy_doors)">
+    <include file="$(find-pkg-share autoware_vehicle_door_simulator)/launch/vehicle_door_simulator.launch.xml"/>
+  </group>
+
+  <!-- Simulator model -->
+  <group if="$(var launch_dummy_vehicle)">
+    <arg name="simulator_model" default="$(var vehicle_model_pkg)/config/simulator_model.param.yaml"/>
+    <let name="motion_publish_mode" value="pose_only" if="$(eval '&quot;$(var localization_sim_mode)&quot;==&quot;pose_twist_estimator&quot;')"/>
+    <let name="motion_publish_mode" value="full_motion" unless="$(eval '&quot;$(var localization_sim_mode)&quot;==&quot;pose_twist_estimator&quot;')"/>
+    <include file="$(find-pkg-share autoware_simple_planning_simulator)/launch/simple_planning_simulator.launch.py">
+      <arg name="vehicle_info_param_file" value="$(var vehicle_info_param_file)"/>
+      <arg name="simulator_model_param_file" value="$(var simulator_model)"/>
+      <arg name="initial_engage_state" value="$(var initial_engage_state)"/>
+      <arg name="raw_vehicle_cmd_converter_param_path" value="$(var raw_vehicle_cmd_converter_param_path)"/>
+      <arg name="motion_publish_mode" value="$(var motion_publish_mode)"/>
+    </include>
+
+    <group if="$(var launch_trailer_state_visualizer)">
+      <include file="$(find-pkg-share autoware_trailer_state_visualizer)/launch/trailer_state_visualizer.launch.py"/>
+    </group>
+  </group>
+</launch>

@@ -1,0 +1,39 @@
+<?xml version="1.0"?>
+<launch>
+  <!-- Where the e2e_rl source tree is mounted/installed. The two nodes add this
+       to sys.path so they can import Environments / Models / e2erl_utils. -->
+  <arg name="e2e_rl_path" default="/home/ben/Ben/Thesis/e2e_rl"/>
+  <arg name="td3_model_path" default="/home/ben/Ben/Thesis/e2e_rl/models/forward/lidar_24/multiplicative/best_model.policy.pth"/>
+
+  <!-- Lanelet2 map: must match what autoware_map_loader was given. The MVSL lab
+       map is a Local-projection map (lat="" lon="" + local_x/local_y tags);
+       lane_reference_node handles that internally. -->
+  <arg name="map_path" default="$(env HOME)/Ben/Electrans/autoware_map/mvsl"/>
+  <arg name="lanelet2_map_file" default="lanelet2_map.osm"/>
+
+  <!-- Bridge knobs -->
+  <arg name="action_space" default="fixed_speed"/>            <!-- fixed_speed | variable_speed -->
+  <arg name="control_rate_hz" default="10.0"/>
+  <arg name="default_velocity_mps" default="5.0"/>
+  <arg name="forward_horizon_m" default="50.0"/>
+  <arg name="centerline_resolution_m" default="0.5"/>
+  <!-- Scale factor between training-time truck (semi, ~6 m trailer) and the
+       deployed vehicle. Set to ~8 for an AgileX-class 1/8 lab robot. -->
+  <arg name="world_scale" default="8.0"/>
+
+  <node pkg="electrans_rl_bridge" exec="lane_reference_node" name="lane_reference_node" output="screen">
+    <param name="map_path" value="$(var map_path)"/>
+    <param name="lanelet2_map_file" value="$(var lanelet2_map_file)"/>
+    <param name="forward_horizon_m" value="$(var forward_horizon_m)"/>
+    <param name="centerline_resolution_m" value="$(var centerline_resolution_m)"/>
+  </node>
+
+  <node pkg="electrans_rl_bridge" exec="rl_bridge_node" name="rl_bridge_node" output="screen">
+    <param name="e2e_rl_path" value="$(var e2e_rl_path)"/>
+    <param name="td3_model_path" value="$(var td3_model_path)"/>
+    <param name="action_space" value="$(var action_space)"/>
+    <param name="control_rate_hz" value="$(var control_rate_hz)"/>
+    <param name="default_velocity_mps" value="$(var default_velocity_mps)"/>
+    <param name="world_scale" value="$(var world_scale)"/>
+  </node>
+</launch>

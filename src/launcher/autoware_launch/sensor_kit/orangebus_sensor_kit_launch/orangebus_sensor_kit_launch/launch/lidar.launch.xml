@@ -1,0 +1,70 @@
+<launch>
+  <arg name="launch_driver" default="true"/>
+  <arg name="host_ip" default="192.168.50.200"/>
+  <arg name="use_concat_filter" default="true"/>
+  <arg name="vehicle_id" default="$(env VEHICLE_ID default)"/>
+  <arg name="vehicle_mirror_param_file"/>
+  <arg name="pointcloud_container_name" default="pointcloud_container"/>
+
+  <group>
+    <push-ros-namespace namespace="lidar"/>
+
+    <group>
+      <push-ros-namespace namespace="front"/>
+      <include file="$(find-pkg-share orangebus_sensor_launch)/launch/robosense_Helios.launch.xml">
+        <arg name="launch_driver" value="$(var launch_driver)"/>
+        <arg name="max_range" value="150.0"/>
+        <arg name="frame_id" value="rslidar_front"/>
+        <arg name="output_topic" value="/rslidar_points_front"/>
+        <arg name="return_mode" value="SingleStrongest"/>
+        <arg name="sensor_ip" value="192.168.50.49"/>
+        <arg name="host_ip" value="$(var host_ip)"/>
+        <arg name="data_port" value="2371"/>
+        <arg name="scan_phase" value="300.0"/>
+        <arg name="vehicle_mirror_param_file" value="$(var vehicle_mirror_param_file)"/>
+        <arg name="container_name" value="pointcloud_container"/>
+      </include>
+    </group>
+
+    <group>
+      <push-ros-namespace namespace="bp_f"/>
+      <include file="$(find-pkg-share orangebus_sensor_launch)/launch/robosense_Helios.launch.xml">
+        <arg name="launch_driver" value="$(var launch_driver)"/>
+        <arg name="max_range" value="150.0"/>
+        <arg name="frame_id" value="rslidar_BP_F"/>
+        <arg name="output_topic" value="/rslidar_points_BP_F"/>
+        <arg name="return_mode" value="SingleStrongest"/>
+        <arg name="sensor_ip" value="192.168.50.50"/>
+        <arg name="host_ip" value="$(var host_ip)"/>
+        <arg name="data_port" value="2370"/>
+        <arg name="scan_phase" value="300.0"/>
+        <arg name="vehicle_mirror_param_file" value="$(var vehicle_mirror_param_file)"/>
+        <arg name="container_name" value="pointcloud_container"/>
+      </include>
+    </group>
+
+    <group>
+      <push-ros-namespace namespace="bp_r"/>
+      <include file="$(find-pkg-share orangebus_sensor_launch)/launch/robosense_Helios.launch.xml">
+        <arg name="launch_driver" value="$(var launch_driver)"/>
+        <arg name="max_range" value="150.0"/>
+        <arg name="frame_id" value="rslidar_BP_R"/>
+        <arg name="output_topic" value="/rslidar_points_BP_R"/>
+        <arg name="return_mode" value="SingleStrongest"/>
+        <arg name="sensor_ip" value="192.168.50.51"/>
+        <arg name="host_ip" value="$(var host_ip)"/>
+        <arg name="data_port" value="2369"/>
+        <arg name="scan_phase" value="180.0"/>
+        <arg name="vehicle_mirror_param_file" value="$(var vehicle_mirror_param_file)"/>
+        <arg name="container_name" value="pointcloud_container"/>
+      </include>
+    </group>
+
+    <include file="$(find-pkg-share orangebus_sensor_kit_launch)/launch/pointcloud_preprocessor.launch.py">
+      <arg name="base_frame" value="base_link"/>
+      <arg name="use_intra_process" value="true"/>
+      <arg name="use_multithread" value="true"/>
+      <arg name="pointcloud_container_name" value="$(var pointcloud_container_name)"/>
+    </include>
+  </group>
+</launch>

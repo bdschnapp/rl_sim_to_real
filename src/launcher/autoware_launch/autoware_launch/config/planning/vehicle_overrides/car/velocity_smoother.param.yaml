@@ -1,0 +1,62 @@
+/**:
+  ros__parameters:
+    # motion state constraints
+    stop_decel: 0.0
+
+    # external velocity limit parameter
+    margin_to_insert_external_velocity_limit: 0.3
+
+    # -- curve parameters  --
+    curvature_calculation_distance: 2.0
+    # lateral acceleration limit parameters
+    enable_lateral_acc_limit: true
+    lateral_acceleration_limits: [1.0, 1.0, 1.0, 1.0]
+    min_curve_velocity: 2.0
+    decel_distance_before_curve: 3.5
+    decel_distance_after_curve: 2.0
+    min_decel_for_lateral_acc_lim_filter: -2.5
+    # steering angle rate limit parameters
+    enable_steering_rate_limit: true
+    velocity_thresholds: [0.1, 0.3, 20.0, 30.0]
+    steering_angle_rate_limits: [11.5, 11.5, 10.5, 3.5]
+    resample_ds: 0.1
+    curvature_threshold: 0.02
+
+    # engage & replan parameters
+    replan_vel_deviation: 5.53
+    engage_velocity: 0.25
+    engage_acceleration: 0.5
+    engage_exit_ratio: 0.5
+    stop_dist_to_prohibit_engage: 0.5
+
+    # stop velocity
+    stopping_velocity: 2.778
+    stopping_distance: 0.0
+
+    # path extraction parameters
+    extract_ahead_dist: 200.0
+    extract_behind_dist: 5.0
+    delta_yaw_threshold: 1.0472
+
+    # resampling parameters for optimization
+    max_trajectory_length: 200.0
+    min_trajectory_length: 180.0
+    resample_time: 2.0
+    dense_resample_dt: 0.2
+    dense_min_interval_distance: 0.1
+    sparse_resample_dt: 0.5
+    sparse_min_interval_distance: 4.0
+
+    # resampling parameters for post process
+    post_max_trajectory_length: 300.0
+    post_min_trajectory_length: 30.0
+    post_resample_time: 10.0
+    post_dense_resample_dt: 0.1
+    post_dense_min_interval_distance: 0.1
+    post_sparse_resample_dt: 0.1
+    post_sparse_min_interval_distance: 1.0
+
+    # system
+    over_stop_velocity_warn_thr: 1.389
+
+    plan_from_ego_speed_on_manual_mode: true

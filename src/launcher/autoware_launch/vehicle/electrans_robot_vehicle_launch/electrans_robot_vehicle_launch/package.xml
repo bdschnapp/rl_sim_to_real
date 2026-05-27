@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>electrans_robot_vehicle_launch</name>
+  <version>0.44.0</version>
+  <description>The electrans_robot_vehicle_launch package</description>
+  <maintainer email="minghao.ning@uwaterloo.ca">Minghao Ning</maintainer>
+  <license>Apache 2.0 License</license>
+
+  <buildtool_depend>ament_cmake_auto</buildtool_depend>
+  <depend>autoware_vehicle_msgs</depend>
+  <exec_depend>canbridge</exec_depend>
+  <depend>rclcpp</depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

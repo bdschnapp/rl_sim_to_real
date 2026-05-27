@@ -1,0 +1,28 @@
+<launch>
+  <arg name="launch_driver" default="true"/>
+
+  <group>
+    <push-ros-namespace namespace="imu"/>
+
+    <!-- Witmotion WT905 IMU driver. Publishes /imu (absolute, per wt905.yml topic_name)
+         and we remap that to tamagawa/imu_raw so the downstream corrector picks it up. -->
+    <node pkg="witmotion_ros" exec="witmotion_ros_node" name="witmotion_imu" if="$(var launch_driver)" output="screen">
+      <param from="$(find-pkg-share witmotion_ros)/config/wt905.yml"/>
+      <remap from="/imu" to="tamagawa/imu_raw"/>
+    </node>
+
+    <arg name="imu_raw_name" default="tamagawa/imu_raw"/>
+    <arg name="imu_corrector_param_file" default="$(find-pkg-share sample_sensor_kit_description)/config/imu_corrector.param.yaml"/>
+    <include file="$(find-pkg-share autoware_imu_corrector)/launch/imu_corrector.launch.xml">
+      <arg name="input_topic" value="$(var imu_raw_name)"/>
+      <arg name="output_topic" value="imu_data"/>
+      <arg name="param_file" value="$(var imu_corrector_param_file)"/>
+    </include>
+
+    <include file="$(find-pkg-share autoware_imu_corrector)/launch/gyro_bias_estimator.launch.xml">
+      <arg name="input_imu_raw" value="$(var imu_raw_name)"/>
+      <arg name="input_odom" value="/localization/kinematic_state"/>
+      <arg name="imu_corrector_param_file" value="$(var imu_corrector_param_file)"/>
+    </include>
+  </group>
+</launch>

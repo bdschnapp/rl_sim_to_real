@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+import "sync_tooling_msgs/unknown.proto";
+import "sync_tooling_msgs/ok.proto";
+import "sync_tooling_msgs/warning.proto";
+import "sync_tooling_msgs/error.proto";
+
+// An elementary diagnostics status
+message DiagStatus {
+  // There has to be exactly one valid status set. Otherwise, the message is invalid.
+  oneof status {
+    // The status is not known (e.g. not yet received, not observable)
+    Unknown unknown = 1;
+    // The status is ok
+    Ok ok = 2;
+    // The status is a warning
+    Warning warning = 3;
+    // The status is an error
+    Error error = 4;
+  }
+}

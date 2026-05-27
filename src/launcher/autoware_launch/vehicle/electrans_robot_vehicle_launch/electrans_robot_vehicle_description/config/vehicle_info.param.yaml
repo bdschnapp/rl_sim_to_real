@@ -1,0 +1,12 @@
+/**:
+  ros__parameters:
+    wheel_radius: 0.15 # The radius of the wheel, primarily used for dead reckoning.
+    wheel_width: 0.1 # The lateral width of a wheel tire, primarily used for dead reckoning.
+    wheel_base: 0.65
+    wheel_tread: 0.605
+    front_overhang: 0.165
+    rear_overhang: 0.165
+    left_overhang: 0.07
+    right_overhang: 0.07
+    vehicle_height: 1.2
+    max_steer_angle: 0.436332   # 25 deg

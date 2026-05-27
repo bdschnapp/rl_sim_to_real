@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Pruned system launch.
+
+  Removed alongside their packages:
+    - autoware_command_mode_decider / autoware_command_mode_switcher
+    - autoware_system_monitor, autoware_duplicated_node_checker, autoware_processing_time_checker
+    - autoware_component_state_monitor
+    - autoware_mrm_comfortable_stop_operator, autoware_mrm_emergency_stop_operator, autoware_mrm_handler
+    - autoware_diagnostic_graph_aggregator, autoware_hazard_status_converter
+    - autoware_dummy_diag_publisher
+    - autoware_pipeline_latency_monitor (already in Step 1)
+
+  Only autoware_component_interface_tools (service_log_checker) is retained.
+  The launch accepts all the legacy args as no-ops so existing callers don't error.
+-->
+<launch>
+  <arg name="component_state_monitor_topic_path" default=""/>
+  <arg name="duplicated_node_checker_param_path" default=""/>
+  <arg name="processing_time_checker_param_path" default=""/>
+  <arg name="mrm_comfortable_stop_operator_param_path" default=""/>
+  <arg name="mrm_emergency_stop_operator_param_path" default=""/>
+  <arg name="dummy_diag_publisher_param_path" default=""/>
+  <arg name="system_monitor_cpu_monitor_param_path" default=""/>
+  <arg name="system_monitor_gpu_monitor_param_path" default=""/>
+  <arg name="system_monitor_hdd_monitor_param_path" default=""/>
+  <arg name="system_monitor_mem_monitor_param_path" default=""/>
+  <arg name="system_monitor_net_monitor_param_path" default=""/>
+  <arg name="system_monitor_ntp_monitor_param_path" default=""/>
+  <arg name="system_monitor_process_monitor_param_path" default=""/>
+  <arg name="system_monitor_voltage_monitor_param_path" default=""/>
+  <arg name="launch_system_monitor" default="false"/>
+  <arg name="launch_dummy_diag_publisher" default="false"/>
+  <arg name="run_mode" default="online"/>
+  <arg name="sensor_model"/>
+  <arg name="mrm_handler_param_path" default=""/>
+  <arg name="diagnostic_graph_aggregator_param_path" default=""/>
+  <arg name="diagnostic_graph_aggregator_graph_path" default=""/>
+  <arg name="availability_converter_param_path" default=""/>
+  <arg name="command_mode_switcher_param_path" default=""/>
+  <arg name="command_mode_decider_param_path" default=""/>
+  <arg name="launch_rqt_reconfigure" default="false"/>
+  <arg name="launch_rqt_runtime_monitor" default="false"/>
+  <arg name="launch_rqt_robot_monitor" default="false"/>
+  <arg name="launch_rqt_runtime_monitor_err" default="false"/>
+  <arg name="use_control_command_gate" default="false"/>
+
+  <group>
+    <push-ros-namespace namespace="/system"/>
+
+    <!-- Only service_log_checker remains; everything else (system_monitor, MRM, diag graph,
+         command-mode, dummy diag, component state monitor, processing time checker) was pruned. -->
+    <group>
+      <include file="$(find-pkg-share autoware_component_interface_tools)/launch/service_log_checker.launch.xml"/>
+    </group>
+  </group>
+</launch>

@@ -1,0 +1,9 @@
+<launch>
+  <arg name="launch_driver" default="true"/>
+  <group>
+    <push-ros-namespace namespace="applanix"/>
+    <!-- Run the python script -->
+    <node pkg="orangebus_sensor_kit_launch" exec="orangebus_velocity_converter.py" name="orangebus_velocity_converter" output="screen">
+    </node>
+  </group>
+</launch>

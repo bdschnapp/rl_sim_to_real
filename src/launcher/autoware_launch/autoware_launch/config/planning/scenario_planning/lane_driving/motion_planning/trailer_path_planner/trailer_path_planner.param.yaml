@@ -1,0 +1,86 @@
+/**:
+  ros__parameters:
+
+    # ── Vehicle geometry ──────────────────────────────────────────────────────
+    # Matches electrans_robot_vehicle_description/config/vehicle_info.param.yaml
+    # and electrans_robot_vehicle_description/config/simulator_model.param.yaml
+    "/trailer/wheel_base": 0.65
+    "/trailer/width": 0.6
+    "/trailer/rear_length": 0.2
+    "/trailer/max_steer": 0.436332      # ~25 deg
+    "/trailer/max_dtheta": 1.0          # jack-knife limit [rad]
+    "/trailer/terminal_tol": 0.4
+
+    # Trailer geometry: len0--Ltail0--Lhead0--len1 ...
+    # length[0] = tractor body length, length[1] = trailer body length
+    "/trailer/length": [1.12, 3.6576]
+    "/trailer/Ltail": [-0.2]            # hitch offset from trailer rear axle
+    "/trailer/Lhead": [2.85]            # hitch offset from tractor rear axle
+    "/trailer/init_pthetas": [0.0, 0.0, 0.0, 0.0]
+
+    # ── Occupancy / ESDF map ──────────────────────────────────────────────────
+    # Obstacle pointcloud arrives on ~/input/pointcloud
+    # (remapped to /perception/obstacle_segmentation/pointcloud in launch)
+    grid_map/map_size_x: 200.0
+    grid_map/map_size_y: 200.0
+    grid_map/resolution: 0.5
+
+    # ── Hybrid A* front-end ───────────────────────────────────────────────────
+    hybrid_astar/yaw_resolution: 0.17453292519943295  # ~10 deg
+    hybrid_astar/lambda_heu: 1.0
+    hybrid_astar/weight_r2: 1.0
+    hybrid_astar/weight_delta: 0.0
+    hybrid_astar/weight_v_change: 5.0
+    hybrid_astar/weight_delta_change: 5.0
+    hybrid_astar/time_interval: 1.0
+    hybrid_astar/oneshot_range: 10.0
+    hybrid_astar/check_ratio: 0.5
+    hybrid_astar/max_vel: 0.5
+    hybrid_astar/pos_tol: 0.5
+    hybrid_astar/theta_tol: 0.2
+    hybrid_astar/max_time_consume: 5.0
+    hybrid_astar/heuristic_type: 0     # 0=Euclidean, 1=Dubins-based
+    hybrid_astar/in_test: false
+
+    # ── Arc trajectory optimiser (back-end) ───────────────────────────────────
+    arc_opt/rho_T: 50.0
+    arc_opt/collision_type: 0           # 0=ESDF
+    arc_opt/corridor_limit: 3.0
+    arc_opt/piece_len: 1.0
+    arc_opt/piece_times: 1.5
+    arc_opt/max_alon: 2.0               # max longitudinal acceleration [m/s²]
+    arc_opt/max_alat: 10000.0           # max lateral acceleration [m/s²]
+    arc_opt/max_vel: 2.0                # max speed [m/s]
+    arc_opt/max_angular_vel: 2.0        # max trailer angular rate [rad/s]
+    arc_opt/max_kappa: 1.68             # max curvature [1/m]
+    arc_opt/max_thetad: 1.47            # max hitch angle [rad] (~84 deg)
+    arc_opt/safe_threshold: 0.36        # ESDF safety margin [m]
+
+    # L-BFGS inner loop
+    arc_opt/g_epsilon: 1.0e-3
+    arc_opt/min_step: 1.0e-32
+    arc_opt/inner_max_iter: 10000.0
+    arc_opt/delta: 1.0e-4
+    arc_opt/mem_size: 64
+    arc_opt/past: 3
+    arc_opt/int_K: 8
+    arc_opt/in_debug: false
+
+    # ALM outer loop
+    arc_opt/rho: 1.0
+    arc_opt/beta: 1000.0
+    arc_opt/gamma: 1.0
+    arc_opt/epsilon_con: 0.1
+    arc_opt/max_iter: 100.0
+    arc_opt/use_scaling: false
+
+    # Cost weights
+    arc_opt/inner_weight_jerk: 0.1
+    arc_opt/inner_weight_kinetics: 10.0
+    arc_opt/inner_weight_vel: 1.0
+    arc_opt/inner_weight_min_vel: 1.0
+    arc_opt/inner_weight_alon: 5.0
+    arc_opt/inner_weight_alat: 2.0
+    arc_opt/inner_weight_kappa: 20.0
+    arc_opt/inner_weight_collision: 50.0
+    arc_opt/inner_weight_tail: 500.0

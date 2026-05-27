@@ -1,0 +1,51 @@
+<?xml version="1.0"?>
+<!--
+  Control component intentionally stubbed.
+
+  Autoware control packages (trajectory follower, MPC, PID, pure-pursuit, trailer
+  MPC/LQR, vehicle_cmd_gate, validators, etc.) were removed. They will be
+  replaced by an external RL bridge node that subscribes to occupancy grid,
+  ego odometry, steering, trailer state, and the lanelet2 centerline; runs a
+  TD3 policy; and publishes AckermannControlCommand on /control/command/control_cmd
+  (which canbridge already subscribes to).
+
+  The top-level autoware.launch.xml still passes these args; they are accepted
+  here as no-ops so the existing call site keeps working.
+-->
+<launch>
+  <arg name="module_preset" default="default"/>
+  <arg name="lateral_controller_mode" default="mpc"/>
+  <arg name="longitudinal_controller_mode" default="pid"/>
+  <arg name="use_individual_control_param" default="false"/>
+  <arg name="use_aeb_autoware_state_check" default="true"/>
+  <arg name="use_sim_time" default="false"/>
+  <arg name="vehicle_model" default="sample_vehicle"/>
+
+  <!-- RL bridge: replaces autoware control + trajectory follower. Provides
+       lane_reference_node + rl_bridge_node which together publish
+       /control/command/control_cmd from the e2e_rl TD3 policy. Defaults below
+       match electrans_rl_bridge.launch.xml so callers that don't override get
+       a working setup. -->
+  <arg name="td3_model_path" default="/home/ben/Ben/Thesis/e2e_rl/models/forward/lidar_24/multiplicative/best_model.policy.pth"/>
+  <arg name="e2e_rl_path" default="/home/ben/Ben/Thesis/e2e_rl"/>
+  <arg name="map_path" default="$(env HOME)/Ben/Electrans/autoware_map/mvsl"/>
+  <arg name="lanelet2_map_file" default="lanelet2_map.osm"/>
+  <arg name="action_space" default="fixed_speed"/>
+  <arg name="control_rate_hz" default="10.0"/>
+  <arg name="default_velocity_mps" default="5.0"/>
+  <arg name="forward_horizon_m" default="50.0"/>
+  <arg name="centerline_resolution_m" default="0.5"/>
+  <arg name="world_scale" default="8.0"/>
+  <include file="$(find-pkg-share electrans_rl_bridge)/launch/electrans_rl_bridge.launch.xml">
+    <arg name="td3_model_path" value="$(var td3_model_path)"/>
+    <arg name="e2e_rl_path" value="$(var e2e_rl_path)"/>
+    <arg name="map_path" value="$(var map_path)"/>
+    <arg name="lanelet2_map_file" value="$(var lanelet2_map_file)"/>
+    <arg name="action_space" value="$(var action_space)"/>
+    <arg name="control_rate_hz" value="$(var control_rate_hz)"/>
+    <arg name="default_velocity_mps" value="$(var default_velocity_mps)"/>
+    <arg name="forward_horizon_m" value="$(var forward_horizon_m)"/>
+    <arg name="centerline_resolution_m" value="$(var centerline_resolution_m)"/>
+    <arg name="world_scale" value="$(var world_scale)"/>
+  </include>
+</launch>

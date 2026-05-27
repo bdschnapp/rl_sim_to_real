@@ -1,0 +1,55 @@
+<launch>
+  <!-- Camera 0: back -->
+  <node pkg="image_transport" exec="republish" name="republish_cam0_image"
+        args="compressed raw --ros-args -r in/compressed:=/pylon_camera_node_back/image_rect/compressed -r out:=/sensing/camera/camera0/image_rect_color" />
+  <node pkg="topic_tools" exec="relay" name="relay_cam0_info">
+    <param name="input_topic" value="/pylon_camera_node_back/camera_info"/>
+    <param name="output_topic" value="/sensing/camera/camera0/camera_info"/>
+    <param name="lazy" value="false"/>
+  </node>
+
+  <!-- Camera 1: back-right -->
+  <node pkg="image_transport" exec="republish" name="republish_cam1_image"
+        args="compressed raw --ros-args -r in/compressed:=/pylon_camera_node_backright/image_rect/compressed -r out:=/sensing/camera/camera1/image_rect_color" />
+  <node pkg="topic_tools" exec="relay" name="relay_cam1_info">
+    <param name="input_topic" value="/pylon_camera_node_backright/camera_info"/>
+    <param name="output_topic" value="/sensing/camera/camera1/camera_info"/>
+    <param name="lazy" value="false"/>
+  </node>
+
+  <!-- Camera 2: center -->
+  <node pkg="image_transport" exec="republish" name="republish_cam2_image"
+        args="compressed raw --ros-args -r in/compressed:=/pylon_camera_node_center/image_rect/compressed -r out:=/sensing/camera/camera2/image_rect_color" />
+  <node pkg="topic_tools" exec="relay" name="relay_cam2_info">
+    <param name="input_topic" value="/pylon_camera_node_center/camera_info"/>
+    <param name="output_topic" value="/sensing/camera/camera2/camera_info"/>
+    <param name="lazy" value="false"/>
+  </node>
+
+  <!-- Camera 3: left -->
+  <node pkg="image_transport" exec="republish" name="republish_cam3_image"
+        args="compressed raw --ros-args -r in/compressed:=/pylon_camera_node_left/image_rect/compressed -r out:=/sensing/camera/camera3/image_rect_color" />
+  <node pkg="topic_tools" exec="relay" name="relay_cam3_info">
+    <param name="input_topic" value="/pylon_camera_node_left/camera_info"/>
+    <param name="output_topic" value="/sensing/camera/camera3/camera_info"/>
+    <param name="lazy" value="false"/>
+  </node>
+
+  <!-- Camera 4: merging -->
+  <node pkg="image_transport" exec="republish" name="republish_cam4_image"
+        args="compressed raw --ros-args -r in/compressed:=/pylon_camera_node_merging/image_rect/compressed -r out:=/sensing/camera/camera4/image_rect_color" />
+  <node pkg="topic_tools" exec="relay" name="relay_cam4_info">
+    <param name="input_topic" value="/pylon_camera_node_merging/camera_info"/>
+    <param name="output_topic" value="/sensing/camera/camera4/camera_info"/>
+    <param name="lazy" value="false"/>
+  </node>
+
+  <!-- Camera 5: right -->
+  <node pkg="image_transport" exec="republish" name="republish_cam5_image"
+        args="compressed raw --ros-args -r in/compressed:=/pylon_camera_node_right/image_rect/compressed -r out:=/sensing/camera/camera5/image_rect_color" />
+  <node pkg="topic_tools" exec="relay" name="relay_cam5_info">
+    <param name="input_topic" value="/pylon_camera_node_right/camera_info"/>
+    <param name="output_topic" value="/sensing/camera/camera5/camera_info"/>
+    <param name="lazy" value="false"/>
+  </node>
+</launch>

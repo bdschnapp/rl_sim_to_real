@@ -1,0 +1,39 @@
+/**:
+  ros__parameters:
+    update_rate: 10.0  # [Hz]
+    # Truck dimensions are read from vehicle_info automatically.
+    # Hitch offset defaults to -rear_overhang from vehicle_info.
+    # Override only if your hitch is not at the rear bumper.
+    hitch_offset: -0.5
+    # Disable TF publication by default because simple_planning_simulator already
+    # publishes trailer_link TF in DELAY_STEER_ACC_GEARED_TRAILER mode.
+    publish_trailer_tf: false
+
+    truck_mesh:
+      enable: true
+      resource: "package://electrans_robot_vehicle_description/mesh/electrans_tractor.dae"
+      scale: [0.25, 0.25, 0.25]
+      # Offset from base_link (truck rear axle frame)
+      offset_xyz: [0.5, 0.0, 0.0]
+      offset_rpy: [0.0, 0.0, -1.5708]
+
+    trailer_mesh:
+      enable: true
+      resource: "package://electrans_robot_vehicle_description/mesh/electrans_trailer.dae"
+      scale: [0.25, 0.25, 0.25]
+      # Offset from trailer_link (trailer rear axle frame)
+      # Move mesh origin forward from trailer rear-axle frame to align kingpin with hitch.
+      offset_xyz: [7.1, 0.0, 0.0]
+      # Mesh forward axis is opposite of trailer_link heading, so flip 180 deg.
+      offset_rpy: [0.0, 0.0, 3.14159]
+
+    trailer:
+      wheelbase: 6.0          # [m] hitch to trailer rear axle
+      width: 1.0              # [m]
+      front_overhang: 0.2     # [m] hitch to front bumper
+      rear_overhang: 0.5      # [m] trailer rear axle to rear bumper
+      height: 1.5             # [m]
+
+    publish_hitch_marker: true
+    publish_hitch_text: true
+    hitch_marker_z: 0.5

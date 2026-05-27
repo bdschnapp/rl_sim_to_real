@@ -1,0 +1,110 @@
+<?xml version="1.0"?>
+<!--
+  Pruned perception launch.
+
+  All object_recognition (detection / tracking / prediction), traffic_light_recognition,
+  and downstream object filters/mergers were removed alongside their packages.
+  What remains is the minimal sensors -> obstacle_segmentation -> occupancy_grid_map chain
+  the RL agent consumes.
+
+  The caller-side launchers still pass many of the old args; they are declared here
+  as inputs (mostly unused) so existing call sites don't error on missing-arg.
+-->
+<launch>
+  <!-- Required parameter file paths still used by kept sub-launches -->
+  <arg name="obstacle_segmentation_ground_segmentation_param_path"/>
+  <arg name="occupancy_grid_map_method"/>
+  <arg name="occupancy_grid_map_param_path"/>
+  <arg name="occupancy_grid_map_updater"/>
+  <arg name="occupancy_grid_map_updater_param_path"/>
+
+  <!-- Common -->
+  <arg name="input/pointcloud" default="/sensing/lidar/concatenated/pointcloud"/>
+  <arg name="use_pointcloud_container" default="true"/>
+  <arg name="pointcloud_container_name" default="pointcloud_container"/>
+
+  <!-- Legacy args accepted as no-ops to preserve caller compatibility -->
+  <arg name="obstacle_segmentation_ground_segmentation_elevation_map_param_path" default=""/>
+  <arg name="object_recognition_detection_euclidean_cluster_param_path" default=""/>
+  <arg name="object_recognition_detection_outlier_param_path" default=""/>
+  <arg name="object_recognition_detection_object_lanelet_filter_param_path" default=""/>
+  <arg name="object_recognition_detection_object_position_filter_param_path" default=""/>
+  <arg name="object_recognition_detection_pointcloud_map_filter_param_path" default=""/>
+  <arg name="object_recognition_prediction_map_based_prediction_param_path" default=""/>
+  <arg name="object_recognition_detection_object_merger_data_association_matrix_param_path" default=""/>
+  <arg name="ml_camera_lidar_object_association_merger_param_path" default=""/>
+  <arg name="object_recognition_detection_object_merger_distance_threshold_list_path" default=""/>
+  <arg name="object_recognition_detection_fusion_sync_param_path" default=""/>
+  <arg name="object_recognition_detection_roi_cluster_fusion_param_path" default=""/>
+  <arg name="object_recognition_detection_irregular_object_detector_param_path" default=""/>
+  <arg name="object_recognition_detection_roi_detected_object_fusion_param_path" default=""/>
+  <arg name="object_recognition_detection_pointpainting_fusion_common_param_path" default=""/>
+  <arg name="object_recognition_detection_lidar_model_param_path" default=""/>
+  <arg name="object_recognition_detection_radar_lanelet_filtering_range_param_path" default=""/>
+  <arg name="object_recognition_detection_object_velocity_splitter_radar_param_path" default=""/>
+  <arg name="object_recognition_detection_object_velocity_splitter_radar_fusion_param_path" default=""/>
+  <arg name="object_recognition_detection_object_range_splitter_radar_param_path" default=""/>
+  <arg name="object_recognition_detection_object_range_splitter_radar_fusion_param_path" default=""/>
+  <arg name="object_recognition_tracking_multi_object_tracker_data_association_matrix_param_path" default=""/>
+  <arg name="object_recognition_tracking_multi_object_tracker_input_channels_param_path" default=""/>
+  <arg name="object_recognition_tracking_multi_object_tracker_node_param_path" default=""/>
+  <arg name="object_recognition_tracking_radar_tracked_object_sorter_param_path" default=""/>
+  <arg name="object_recognition_tracking_radar_tracked_object_lanelet_filter_param_path" default=""/>
+  <arg name="object_recognition_detection_obstacle_pointcloud_based_validator_param_path" default=""/>
+  <arg name="object_recognition_detection_detection_by_tracker_param" default=""/>
+  <arg name="lidar_detection_model" default=""/>
+  <arg name="each_traffic_light_map_based_detector_param_path" default=""/>
+  <arg name="traffic_light_fine_detector_param_path" default=""/>
+  <arg name="yolox_traffic_light_detector_param_path" default=""/>
+  <arg name="car_traffic_light_classifier_param_path" default=""/>
+  <arg name="pedestrian_traffic_light_classifier_param_path" default=""/>
+  <arg name="traffic_light_roi_visualizer_param_path" default=""/>
+  <arg name="traffic_light_occlusion_predictor_param_path" default=""/>
+  <arg name="traffic_light_multi_camera_fusion_param_path" default=""/>
+  <arg name="traffic_light_arbiter_param_path" default=""/>
+  <arg name="crosswalk_traffic_light_estimator_param_path" default=""/>
+  <arg name="data_path" default="$(env HOME)/autoware_data"/>
+  <arg name="use_traffic_light_recognition" default="false"/>
+  <arg name="use_short_range_detection" default="false"/>
+
+  <group>
+    <push-ros-namespace namespace="perception"/>
+
+    <!-- Obstacle segmentation (ground_segmentation pipeline -> /perception/obstacle_segmentation/pointcloud) -->
+    <group>
+      <push-ros-namespace namespace="obstacle_segmentation"/>
+      <include file="$(find-pkg-share tier4_perception_launch)/launch/obstacle_segmentation/ground_segmentation/ground_segmentation.launch.py">
+        <arg name="base_frame" value="base_link"/>
+        <arg name="use_intra_process" value="true"/>
+        <arg name="use_pointcloud_container" value="$(var use_pointcloud_container)"/>
+        <arg name="pointcloud_container_name" value="$(var pointcloud_container_name)"/>
+        <arg name="input/pointcloud" value="$(var input/pointcloud)"/>
+      </include>
+    </group>
+
+    <!-- Empty objects publisher: keep downstream consumers happy without the deleted object_recognition pipeline -->
+    <group>
+      <push-ros-namespace namespace="object_recognition"/>
+      <node pkg="autoware_dummy_perception_publisher" exec="empty_objects_publisher" name="empty_objects_publisher" output="screen">
+        <remap from="~/output/objects" to="/perception/object_recognition/objects"/>
+      </node>
+    </group>
+
+    <!-- Occupancy grid map -->
+    <group>
+      <push-ros-namespace namespace="occupancy_grid_map"/>
+      <include file="$(find-pkg-share tier4_perception_launch)/launch/occupancy_grid_map/probabilistic_occupancy_grid_map.launch.xml">
+        <arg name="input_obstacle_pointcloud" value="true"/>
+        <arg name="input_obstacle_and_raw_pointcloud" value="false"/>
+        <arg name="input/obstacle_pointcloud" value="/perception/obstacle_segmentation/pointcloud"/>
+        <arg name="output" value="/perception/occupancy_grid_map/map"/>
+        <arg name="occupancy_grid_map_method" value="$(var occupancy_grid_map_method)"/>
+        <arg name="occupancy_grid_map_param_path" value="$(var occupancy_grid_map_param_path)"/>
+        <arg name="occupancy_grid_map_updater" value="$(var occupancy_grid_map_updater)"/>
+        <arg name="occupancy_grid_map_updater_param_path" value="$(var occupancy_grid_map_updater_param_path)"/>
+        <arg name="use_pointcloud_container" value="$(var use_pointcloud_container)"/>
+        <arg name="pointcloud_container_name" value="$(var pointcloud_container_name)"/>
+      </include>
+    </group>
+  </group>
+</launch>

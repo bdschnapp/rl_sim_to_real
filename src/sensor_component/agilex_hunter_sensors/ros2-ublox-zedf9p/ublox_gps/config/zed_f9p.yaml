@@ -1,0 +1,28 @@
+ublox_gps_node:
+  ros__parameters:
+    debug: 0                    # Range 0-4 (0 means no debug statements will print)
+    device: /dev/serial/by-id/usb-u-blox_AG_-_www.u-blox.com_u-blox_GNSS_receiver-if00
+    # device: /dev/ttyACM0
+    frame_id: gps
+    uart1:
+      baudrate: 9600
+    gnss:
+      glonass: false
+      beidou: false
+      gps: true
+      qzss: false
+      galileo: false
+      imes: false
+    # TMODE3 Config
+    tmode3: 0                   # Disabled (rover mode)
+ 
+    inf:
+      all: true                   # Whether to display all INF messages in console
+ 
+    publish:
+      all: false
+      nav:
+        all: true
+        relposned: true
+        posllh: true
+        posecef: true

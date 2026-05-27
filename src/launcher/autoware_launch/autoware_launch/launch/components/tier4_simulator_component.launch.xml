@@ -1,0 +1,63 @@
+<?xml version="1.0"?>
+<!--
+  Pruned simulator component launch.
+
+  Removed includes/args that pointed at deleted packages
+  (autoware_dummy_infrastructure, traffic_light_*, multi_object_tracker, map_based_prediction,
+  elevation_map, localization_error_monitor). The tier4_simulator_launch stub accepts
+  the remaining args as no-ops where needed.
+-->
+<launch>
+  <arg name="launch_dummy_perception"/>
+  <arg name="launch_dummy_vehicle"/>
+  <arg name="localization_sim_mode"/>
+  <arg name="launch_dummy_doors"/>
+  <arg name="launch_scenario_simulator_v2_adapter" default="false"/>
+  <arg name="perception/enable_detection_failure"/>
+  <arg name="perception/enable_object_recognition" default="false"/>
+  <arg name="perception/enable_traffic_light" default="false"/>
+  <arg name="perception/use_base_link_z"/>
+  <arg name="sensing/visible_range"/>
+  <arg name="vehicle_model"/>
+  <arg name="initial_engage_state"/>
+  <arg name="vehicle_info_param_file"/>
+  <arg name="raw_vehicle_cmd_converter_param_path"/>
+  <arg name="launch_trailer_state_visualizer" default="false"/>
+  <arg name="occupancy_grid_map_updater" default="binary_bayes_filter"/>
+  <arg name="use_pointcloud_container" default="true"/>
+
+  <include file="$(find-pkg-share tier4_simulator_launch)/launch/simulator.launch.xml">
+    <arg name="launch_dummy_perception" value="$(var launch_dummy_perception)"/>
+    <arg name="launch_dummy_vehicle" value="$(var launch_dummy_vehicle)"/>
+    <arg name="localization_sim_mode" value="$(var localization_sim_mode)"/>
+    <arg name="launch_dummy_doors" value="$(var launch_dummy_doors)"/>
+    <arg name="launch_scenario_simulator_v2_adapter" value="$(var launch_scenario_simulator_v2_adapter)"/>
+    <arg name="perception/enable_detection_failure" value="$(var perception/enable_detection_failure)"/>
+    <arg name="perception/enable_object_recognition" value="$(var perception/enable_object_recognition)"/>
+    <arg name="perception/enable_traffic_light" value="$(var perception/enable_traffic_light)"/>
+    <arg name="perception/use_base_link_z" value="$(var perception/use_base_link_z)"/>
+    <arg name="sensing/visible_range" value="$(var sensing/visible_range)"/>
+    <arg name="vehicle_model" value="$(var vehicle_model)"/>
+    <arg name="initial_engage_state" value="$(var initial_engage_state)"/>
+    <arg name="vehicle_info_param_file" value="$(var vehicle_info_param_file)"/>
+    <arg name="raw_vehicle_cmd_converter_param_path" value="$(var raw_vehicle_cmd_converter_param_path)"/>
+    <arg name="launch_trailer_state_visualizer" value="$(var launch_trailer_state_visualizer)"/>
+    <arg name="use_pointcloud_container" value="$(var use_pointcloud_container)"/>
+
+    <arg name="fault_injection_param_path" value="$(find-pkg-share autoware_launch)/config/simulator/fault_injection.param.yaml"/>
+    <arg name="ekf_localizer_param_path" value="$(find-pkg-share autoware_launch)/config/localization/ekf_localizer.param.yaml"/>
+    <arg name="stop_filter_param_path" value="$(find-pkg-share autoware_launch)/config/localization/stop_filter.param.yaml"/>
+    <arg name="pose_initializer_param_path" value="$(find-pkg-share autoware_launch)/config/localization/pose_initializer.param.yaml"/>
+    <arg name="twist2accel_param_path" value="$(find-pkg-share autoware_launch)/config/localization/twist2accel.param.yaml"/>
+    <arg name="laserscan_based_occupancy_grid_map_param_path" value="$(find-pkg-share autoware_launch)/config/perception/occupancy_grid_map/laserscan_based_occupancy_grid_map.param.yaml"/>
+    <arg name="occupancy_grid_map_updater" value="$(var occupancy_grid_map_updater)"/>
+    <arg name="occupancy_grid_map_updater_param_path" value="$(find-pkg-share autoware_launch)/config/perception/occupancy_grid_map/$(var occupancy_grid_map_updater)_updater.param.yaml"/>
+  </include>
+
+  <!-- RViz "2D Pose Estimate" publishes to /initialpose; simple_planning_simulator
+       listens on /initialpose3d. The autoware_adapi initial_pose_adaptor that used
+       to relay between the two was removed in the prune, so plumb a topic_tools
+       relay here. Both topics carry PoseWithCovarianceStamped. -->
+  <node pkg="topic_tools" exec="relay" name="initialpose_to_3d_relay"
+        args="/initialpose /initialpose3d" output="screen"/>
+</launch>

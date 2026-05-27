@@ -1,0 +1,219 @@
+TRAILER PLANNING PACKAGES ANALYSIS
+=====================================
+Generated: 2026-04-05
+
+ARCHITECTURE CONTEXT
+--------------------
+The repo uses a scenario-switching approach: autoware_scenario_selector routes to either the
+standard pipeline (LANEDRIVING) or the dedicated trailer pipeline (TRUCKTRAILER). The trailer
+planner + bridge replace the motion planning stage — they don't need the entire standard
+pipeline to be rewritten. Updates are about what the standard pipeline touches when not in
+trailer mode vs. what needs trailer awareness.
+
+
+FULL FUNCTIONALITY — ALL PACKAGES REQUIRING UPDATES
+=====================================================
+
+COLLISION CHECKING / FOOTPRINT
+-------------------------------
+autoware_behavior_path_planner_common
+  Issue: createFootprint() used in safety checker, turn signal decider — no articulated footprint
+
+autoware_behavior_velocity_intersection_module
+  Issue: Footprint-based collision check at intersections — ignores trailer overhang
+
+autoware_behavior_velocity_traffic_light_module
+  Issue: Stop line positioning based on tractor front only
+
+autoware_behavior_velocity_crosswalk_module
+  Issue: Pedestrian conflict check uses tractor footprint only
+
+autoware_behavior_velocity_blind_spot_module
+  Issue: Blind spot geometry assumes single body
+
+autoware_behavior_velocity_no_stopping_area_module
+  Issue: No-stopping zone check uses tractor footprint
+
+autoware_behavior_velocity_detection_area_module
+  Issue: Detection polygon excludes trailer body
+
+autoware_behavior_velocity_run_out_module
+  Issue: Dynamic obstacle conflict check, single-body only
+
+autoware_behavior_velocity_occlusion_spot_module
+  Issue: Visibility polygon uses tractor only
+
+autoware_behavior_velocity_speed_bump_module
+  Issue: Axle count/spacing not considered
+
+autoware_behavior_velocity_walkway_module
+  Issue: Clearance based on tractor width
+
+autoware_behavior_velocity_virtual_traffic_light_module
+  Issue: Stop/go trigger at tractor front only
+
+autoware_motion_velocity_planner_common
+  Issue: wheel_base_m used for trajectory footprint validation
+
+autoware_motion_velocity_obstacle_cruise_module
+  Issue: Object polygon overlap uses tractor footprint
+
+autoware_motion_velocity_obstacle_slow_down_module
+  Issue: Same issue as cruise module
+
+autoware_motion_velocity_out_of_lane_module
+  Issue: Lane boundary checks miss trailer swing
+
+autoware_motion_velocity_dynamic_obstacle_stop_module
+  Issue: Collision time assumes single body
+
+autoware_surround_obstacle_checker
+  Issue: Published footprint visualization + surround collision buffer — tractor only
+
+
+KINEMATICS / PATH PLANNING
+---------------------------
+autoware_path_optimizer
+  Issue: KinematicsBicycleModel — cannot represent articulated state; replaces trailer
+         planner in standard mode
+
+autoware_diffusion_planner
+  Issue: Uses wheel_base_ for ego state kinematics
+
+autoware_freespace_planner
+  Issue: VehicleShape (length/width only) — parking maneuvers violate trailer constraints
+
+autoware_freespace_planning_algorithms
+  Issue: Underlying A*/RS algorithms assume single-body shape
+
+autoware_path_sampler
+  Issue: footprint_per_time constraint uses single-body polygon
+
+autoware_bezier_sampler
+  Issue: Same footprint assumption
+
+autoware_frenet_planner
+  Issue: Frenet frame trajectory assumes single rigid body
+
+
+BEHAVIOR PATH MODULES
+---------------------
+autoware_behavior_path_lane_change_module
+  Issue: Adjacent lane clearance check ignores trailer width/swing
+
+autoware_behavior_path_goal_planner_module
+  Issue: Parking/pull-over motion doesn't account for trailer
+
+autoware_behavior_path_obstacle_avoidance_module
+  Issue: Avoidance path width ignores trailer body
+
+autoware_behavior_path_side_shift_module
+  Issue: Lateral shift constraint based on tractor only
+
+
+VALIDATORS
+----------
+autoware_planning_validator_rear_collision_checker
+  Issue: Rear overhang check doesn't include trailer tail
+
+autoware_planning_validator_intersection_collision_checker
+  Issue: Intersection safety polygon = tractor only
+
+autoware_planning_validator_trajectory_checker
+  Issue: Curvature feasibility uses tractor wheelbase only
+
+
+SHARED UTILITY (ROOT CAUSE)
+----------------------------
+autoware_vehicle_info_utils
+  Issue: createFootprint() returns single-body rectangle; wheel_base_m is the only
+         wheelbase; no trailer geometry methods — this is the root issue that cascades
+         to ~40 packages
+
+
+TOTAL: ~35 packages require updates for full functionality
+
+
+MINIMUM DRIVING EXAMPLE
+========================
+Minimal set needed to get a trailer vehicle driving from A to B on structured roads
+using the existing scenario-switching architecture:
+
+autoware_scenario_selector
+  Status: ALREADY DONE
+  Change: TRUCKTRAILER scenario routing
+  Why: Routes to trailer pipeline
+
+autoware_truck_trailer_bridge
+  Status: ALREADY DONE
+  Change: Mode manager + trajectory converter
+  Why: Connects mission planner -> trailer planner -> control
+
+autoware_trailer_path_planner
+  Status: ALREADY DONE
+  Change: Core planner implementation
+  Why: Does the actual planning
+
+autoware_mission_planner
+  Status: NEEDS VERIFICATION
+  Change: Verify route output feeds bridge correctly
+  Why: Route must reach TruckTrailerBridge::GoalExtractor
+
+autoware_planning_validator_trajectory_checker
+  Status: NEEDS UPDATE
+  Change: Relax or disable curvature constraints for trailer
+  Why: Trailer trajectories have different curvature/velocity profiles that will
+       fail standard validation
+
+autoware_planning_validator_rear_collision_checker
+  Status: NEEDS UPDATE
+  Change: Extend to check trailer tail clearance
+  Why: Trailer rear can collide with obstacles behind it that would be fine for
+       a truck alone
+
+autoware_surround_obstacle_checker
+  Status: NEEDS UPDATE
+  Change: Update footprint to cover trailer body
+  Why: Without this, the vehicle may drive into obstacles that only overlap with
+       the trailer
+
+autoware_velocity_smoother
+  Status: NEEDS VERIFICATION
+  Change: Verify compatibility with trailer trajectory time-parameterization
+  Why: Trailer planner outputs arc trajectories with different velocity profiles
+
+
+BYPASSED IN MINIMUM EXAMPLE (trailer pipeline skips these entirely)
+--------------------------------------------------------------------
+- All 12 behavior velocity modules (TRUCKTRAILER scenario bypasses them)
+- All behavior path modules (lane change, avoidance, side shift, etc.)
+- autoware_path_optimizer (not used in trailer pipeline)
+- autoware_diffusion_planner (not used in trailer pipeline)
+- autoware_freespace_planner (trailer path planner handles free-space itself)
+
+
+KEY REFERENCE FILES
+====================
+Trailer Planner Node:
+  src/universe/autoware_universe/planning/autoware_trailer_path_planner/src/trailer_path_planner_node.cpp
+
+Trailer Kinematics:
+  src/universe/autoware_universe/planning/autoware_trailer_path_planner/include/autoware_trailer_path_planner/trailer.hpp
+
+Hybrid A* Planner:
+  src/universe/autoware_universe/planning/autoware_trailer_path_planner/include/autoware_trailer_path_planner/hybrid_astar.h
+
+Arc Optimizer:
+  src/universe/autoware_universe/planning/autoware_trailer_path_planner/include/autoware_trailer_path_planner/arc_opt.h
+
+Truck-Trailer Bridge:
+  src/universe/autoware_universe/planning/autoware_truck_trailer_bridge/include/autoware/truck_trailer_bridge/truck_trailer_mode_manager.hpp
+
+Scenario Selector:
+  src/universe/autoware_universe/planning/autoware_scenario_selector/include/autoware/scenario_selector/node.hpp
+
+Vehicle Info Library (root cause of cascading issues):
+  src/core/autoware_core/common/autoware_vehicle_info_utils/include/autoware/vehicle_info_utils/vehicle_info.hpp
+
+Trailer Planner Config:
+  src/universe/autoware_universe/planning/autoware_trailer_path_planner/config/trailer_path_planner.param.yaml
