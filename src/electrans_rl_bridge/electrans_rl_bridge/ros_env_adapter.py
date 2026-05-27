@@ -186,9 +186,38 @@ class ROSLineFollowingAdapter:
         xs_local = ((dx * c - dy * s) * self.world_scale).astype(np.float32)
         ys_local = ((dx * s + dy * c) * self.world_scale).astype(np.float32)
 
+        # Direction sanity check: lane_reference_node always publishes the
+        # centerline in the canonical lanelet direction. If the truck is
+        # driving the OPPOSITE way along the lane, the local centerline flows
+        # in -X (backward) through the truck in env-frame. The env's
+        # curvature lookahead always reads forward in array order, so we
+        # must reverse the order before storing it, otherwise k1/k2 read
+        # from cells behind the truck instead of ahead.
+        xs_local, ys_local = self._orient_centerline_forward(xs_local, ys_local)
+
         self._apply_state_to(self.env, xs_local, ys_local)
         if self.debug_bev_env is not self.env:
             self._apply_state_to(self.debug_bev_env, xs_local, ys_local)
+
+    @staticmethod
+    def _orient_centerline_forward(xs_local, ys_local):
+        """Reverse the centerline order if its local tangent at the truck
+        (env origin) points in -X. Ensures the lane always flows AHEAD of
+        the truck in env-frame, regardless of which way the truck is
+        driving along the canonical lanelet."""
+        if xs_local.size < 2:
+            return xs_local, ys_local
+        # Nearest segment of centerline to the truck (at env origin).
+        i = int(np.argmin(xs_local * xs_local + ys_local * ys_local))
+        if 0 < i < xs_local.size - 1:
+            dx_tan = xs_local[i + 1] - xs_local[i - 1]
+        elif i == 0:
+            dx_tan = xs_local[1] - xs_local[0]
+        else:
+            dx_tan = xs_local[-1] - xs_local[-2]
+        if dx_tan < 0.0:
+            return xs_local[::-1].copy(), ys_local[::-1].copy()
+        return xs_local, ys_local
 
     @staticmethod
     def _patch_vehicle_params(env):
