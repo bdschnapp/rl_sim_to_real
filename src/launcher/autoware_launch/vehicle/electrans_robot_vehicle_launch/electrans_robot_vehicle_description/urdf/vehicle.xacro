@@ -1,15 +1,88 @@
 <?xml version="1.0"?>
-<robot xmlns:xacro="http://ros.org/wiki/xacro">
-  <!-- load parameter -->
-  <xacro:property name="vehicle_info" value="${xacro.load_yaml('$(find electrans_robot_vehicle_description)/config/vehicle_info.param.yaml')}"/>
+<!--
+  Visualization URDF for the AgileX Hunter (1/8-scale tractor).
+  Meshes copied from hunter_description (~/Ben/Electrans/ros2_sim_env/ws/src/
+  vehicles/agilex/hunter_description). Joints are all FIXED here because we
+  only need the static visual in RViz — sim dynamics live in
+  autoware_simple_planning_simulator, not in this URDF, and we don't want to
+  depend on a joint_state_publisher.
 
-  <!-- vehicle body -->
-  <link name="base_link">
+  Geometry (from hunter_description/robot_core.xacro):
+    base_link origin             = REAR AXLE at ground (Autoware convention)
+    chassis offset               = (+0.28, 0, 0.37) — hunter URDF puts base_link
+                                   0.28 m forward of the rear axle, but Autoware
+                                   sim publishes base_link AT the rear axle, so
+                                   we shift the chassis (and its children) by
+                                   +0.28 m to compensate. Result: rear wheels
+                                   sit AT base_link, front wheels at +0.65 m.
+    rear wheel positions  (chassis frame)  = (-0.28, ±0.2925, -0.19558)
+    front wheel positions (chassis frame)  = (+0.37142, ±0.2925, -0.19558)
+    wheel rpy (DAE Y-up convention)        = (pi/2, 0, 0)
+    wheelbase                              = 0.37142 - (-0.28) = 0.65142
+-->
+<robot xmlns:xacro="http://ros.org/wiki/xacro" name="electrans_robot_vehicle">
+
+  <xacro:property name="z_base_to_wheel" value="-0.19558"/>
+  <xacro:property name="x_base_to_rear"  value="-0.28"/>
+  <xacro:property name="x_base_to_front" value="0.37142"/>
+  <xacro:property name="y_base_to_wheel" value="0.2925"/>
+  <!-- Shift chassis forward so base_link is at the rear axle. -->
+  <xacro:property name="rear_axle_shift" value="0.28"/>
+
+  <xacro:macro name="agilex_mesh" params="name">
     <visual>
-      <origin xyz="${vehicle_info['/**']['ros__parameters']['wheel_base']/2.0} 0 0" rpy="0 0 -1.5708"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="package://electrans_robot_vehicle_description/mesh/electrans_tractor.dae" scale="0.5 0.5 0.5"/>
+        <mesh filename="package://electrans_robot_vehicle_description/mesh/agilex/${name}.dae"/>
       </geometry>
     </visual>
+  </xacro:macro>
+
+  <link name="base_link"/>
+
+  <joint name="chassis_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="chassis"/>
+    <origin xyz="${rear_axle_shift} 0 0.37" rpy="0 0 0"/>
+  </joint>
+  <link name="chassis">
+    <xacro:agilex_mesh name="chassis"/>
   </link>
+
+  <joint name="rear_left_wheel_joint" type="fixed">
+    <parent link="chassis"/>
+    <child link="rear_left_wheel"/>
+    <origin xyz="${x_base_to_rear} ${y_base_to_wheel} ${z_base_to_wheel}" rpy="${pi/2} 0 0"/>
+  </joint>
+  <link name="rear_left_wheel">
+    <xacro:agilex_mesh name="rear_left_wheel"/>
+  </link>
+
+  <joint name="rear_right_wheel_joint" type="fixed">
+    <parent link="chassis"/>
+    <child link="rear_right_wheel"/>
+    <origin xyz="${x_base_to_rear} -${y_base_to_wheel} ${z_base_to_wheel}" rpy="${pi/2} 0 0"/>
+  </joint>
+  <link name="rear_right_wheel">
+    <xacro:agilex_mesh name="rear_right_wheel"/>
+  </link>
+
+  <joint name="front_left_wheel_joint" type="fixed">
+    <parent link="chassis"/>
+    <child link="front_left_wheel"/>
+    <origin xyz="${x_base_to_front} ${y_base_to_wheel} ${z_base_to_wheel}" rpy="${pi/2} 0 0"/>
+  </joint>
+  <link name="front_left_wheel">
+    <xacro:agilex_mesh name="front_left_wheel"/>
+  </link>
+
+  <joint name="front_right_wheel_joint" type="fixed">
+    <parent link="chassis"/>
+    <child link="front_right_wheel"/>
+    <origin xyz="${x_base_to_front} -${y_base_to_wheel} ${z_base_to_wheel}" rpy="${pi/2} 0 0"/>
+  </joint>
+  <link name="front_right_wheel">
+    <xacro:agilex_mesh name="front_right_wheel"/>
+  </link>
+
 </robot>

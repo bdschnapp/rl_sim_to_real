@@ -90,6 +90,7 @@ private:
   bool publish_hitch_marker_;
   bool publish_hitch_text_;
   bool publish_trailer_tf_;
+  bool publish_truck_body_marker_;  // skip when URDF/robot_state_publisher draws the truck
 
   // Callbacks
   void onOdometry(nav_msgs::msg::Odometry::ConstSharedPtr msg);

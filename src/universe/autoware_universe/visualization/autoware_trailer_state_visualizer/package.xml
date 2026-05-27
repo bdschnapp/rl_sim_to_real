@@ -26,6 +26,10 @@
   <depend>tf2_ros</depend>
   <depend>visualization_msgs</depend>
 
+  <!-- For the default trailer-geometry yaml path resolved in the launch.
+       Override via the trailer_geometry_param_file launch arg for other vehicles. -->
+  <exec_depend>electrans_robot_vehicle_description</exec_depend>
+
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>autoware_lint_common</test_depend>
 

@@ -237,6 +237,13 @@ private:
   double trailer_hitch_offset_ = 0.0;   //!< truck rear-axle → hitch [m] (+forward / –rearward)
   double trailer_wheelbase_ = 0.0;      //!< hitch → trailer rear-axle [m]
 
+  // Cached previous tick's trailer state, used to finite-difference the hitch
+  // rate published in TrailerState (the kinematic model doesn't expose
+  // d(hitch_angle)/dt directly). prev_trailer_stamp_ uses zero-init sentinel
+  // (sec == 0 && nanosec == 0) on the first tick to suppress a spurious rate.
+  double prev_hitch_angle_ = 0.0;
+  rclcpp::Time prev_trailer_stamp_{0, 0, RCL_ROS_TIME};
+
   void set_input(const InputCommand & cmd, const double acc_by_slope);
 
   /**

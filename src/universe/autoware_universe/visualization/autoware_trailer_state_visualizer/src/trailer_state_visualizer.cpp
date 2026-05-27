@@ -37,17 +37,23 @@ TrailerStateVisualizer::TrailerStateVisualizer(const rclcpp::NodeOptions & optio
   const double default_hitch_offset = -vehicle_info_.rear_overhang_m;
   hitch_offset_m_ = declare_parameter<double>("hitch_offset", default_hitch_offset);
 
-  // Trailer box / kinematics parameters
-  trailer_.wheelbase = declare_parameter<double>("trailer.wheelbase", 6.0);
-  trailer_.width = declare_parameter<double>("trailer.width", vehicle_info_.vehicle_width_m);
-  trailer_.front_overhang = declare_parameter<double>("trailer.front_overhang", 0.2);
-  trailer_.rear_overhang = declare_parameter<double>("trailer.rear_overhang", 0.5);
-  trailer_.height = declare_parameter<double>("trailer.height", vehicle_info_.vehicle_height_m);
+  // Trailer box / kinematics parameters. Flat names share the namespace with
+  // simulator_model.param.yaml (the single source of truth for trailer geometry).
+  trailer_.wheelbase = declare_parameter<double>("trailer_wheelbase", 6.0);
+  trailer_.width = declare_parameter<double>("trailer_width", vehicle_info_.vehicle_width_m);
+  trailer_.front_overhang = declare_parameter<double>("trailer_front_overhang", 0.2);
+  trailer_.rear_overhang = declare_parameter<double>("trailer_rear_overhang", 0.5);
+  trailer_.height = declare_parameter<double>("trailer_height", vehicle_info_.vehicle_height_m);
 
   hitch_marker_z_ = declare_parameter<double>("hitch_marker_z", 0.5);
   publish_hitch_marker_ = declare_parameter<bool>("publish_hitch_marker", true);
   publish_hitch_text_ = declare_parameter<bool>("publish_hitch_text", true);
   publish_trailer_tf_ = declare_parameter<bool>("publish_trailer_tf", false);
+  // Defaults to true for backward compat. Set false when robot_state_publisher
+  // already renders the truck (e.g. via a URDF) -- otherwise the existing
+  // makeBodyBoxMarker fallback draws a CUBE sized with TRAILER dimensions on
+  // top of the URDF, which looks like a phantom trailer in front of the truck.
+  publish_truck_body_marker_ = declare_parameter<bool>("publish_truck_body_marker", true);
 
   const auto parse_vec3 = [this](const std::string & name, const std::vector<double> & default_value) {
     const auto values = declare_parameter<std::vector<double>>(name, default_value);
@@ -192,13 +198,16 @@ visualization_msgs::msg::MarkerArray TrailerStateVisualizer::buildMarkers(
   const double trailer_axle_x = hitch_x - trailer_.wheelbase * std::cos(trailer_yaw);
   const double trailer_axle_y = hitch_y - trailer_.wheelbase * std::sin(trailer_yaw);
 
-  // 0: Truck body marker (reference = rear axle / base_link).
-  if (truck_mesh_.enable && !truck_mesh_.resource.empty()) {
-    marker_array.markers.push_back(
-      makeMeshMarker(0, truck_x, truck_y, trailer_z, truck_yaw, header, truck_mesh_, "truck_body"));
-  } else {
-    marker_array.markers.push_back(
-      makeBodyBoxMarker(0, truck_x, truck_y, truck_yaw, trailer_z, header, "truck_body"));
+  // 0: Truck body marker (reference = rear axle / base_link). Skipped entirely
+  // when publish_truck_body_marker is false (URDF already renders the truck).
+  if (publish_truck_body_marker_) {
+    if (truck_mesh_.enable && !truck_mesh_.resource.empty()) {
+      marker_array.markers.push_back(
+        makeMeshMarker(0, truck_x, truck_y, trailer_z, truck_yaw, header, truck_mesh_, "truck_body"));
+    } else {
+      marker_array.markers.push_back(
+        makeBodyBoxMarker(0, truck_x, truck_y, truck_yaw, trailer_z, header, "truck_body"));
+    }
   }
 
   // 1: Trailer body marker (reference = trailer rear axle).

@@ -19,6 +19,16 @@
     x_stddev: 0.0001 # x standard deviation for dummy covariance in map coordinate
     y_stddev: 0.0001 # y standard deviation for dummy covariance in map coordinate
     enable_road_slope_simulation: true # if true, slopes in the lanelet map are used to apply an extra acceleration to the ego vehicle
-    hitch_offset: -0.5
-    trailer_wheelbase: 6.0
-    max_hitch_angle: 0.785
+    # ---- Trailer geometry (single source of truth) -------------------------
+    # Consumed by:
+    #   - simple_planning_simulator (DELAY_STEER_ACC_GEARED_TRAILER dynamics)
+    #   - autoware_trailer_state_visualizer (mesh placement + marker dims)
+    # Both nodes load this file at startup; do NOT duplicate elsewhere.
+    hitch_offset: 0.0          # hitch at rear axle; matches training-time trailer model
+    trailer_wheelbase: 2.0     # AgileX lab trailer (~2 m); verify in person
+    max_hitch_angle: 1.3963    # 80 deg
+    # Visualizer-only marker dimensions (sim physics doesn't use these).
+    trailer_width: 0.33
+    trailer_height: 0.5
+    trailer_front_overhang: 0.07
+    trailer_rear_overhang: 0.17

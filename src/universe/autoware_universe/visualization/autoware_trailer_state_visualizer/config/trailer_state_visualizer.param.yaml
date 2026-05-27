@@ -1,38 +1,41 @@
 /**:
   ros__parameters:
     update_rate: 10.0  # [Hz]
-    # Truck dimensions are read from vehicle_info automatically.
-    # Hitch offset defaults to -rear_overhang from vehicle_info.
-    # Override only if your hitch is not at the rear bumper.
-    hitch_offset: -0.5
+    # Trailer geometry (hitch_offset, trailer_wheelbase, trailer_width, etc.)
+    # is NOT declared here — it comes from the vehicle-specific geometry yaml
+    # (simulator_model.param.yaml for electrans_robot) loaded alongside this
+    # file by trailer_state_visualizer.launch.py. Keeping it in one place
+    # prevents the visualizer from drifting out of sync with the simulator.
+
     # Disable TF publication by default because simple_planning_simulator already
     # publishes trailer_link TF in DELAY_STEER_ACC_GEARED_TRAILER mode.
     publish_trailer_tf: false
 
+    # Truck is rendered by robot_state_publisher from the URDF
+    # (electrans_robot_vehicle_description/urdf/vehicle.xacro). Skip the
+    # visualizer's truck marker entirely so we don't draw on top of the URDF
+    # (the fallback box marker in the visualizer is also dimensioned using
+    # TRAILER params, so leaving it on draws a phantom ~2 m box at the truck).
+    publish_truck_body_marker: false
+
     truck_mesh:
-      enable: true
-      resource: "package://electrans_robot_vehicle_description/mesh/electrans_tractor.dae"
-      scale: [0.25, 0.25, 0.25]
-      # Offset from base_link (truck rear axle frame)
-      offset_xyz: [0.5, 0.0, 0.0]
-      offset_rpy: [0.0, 0.0, -1.5708]
+      enable: false
+      resource: ""
+      scale: [1.0, 1.0, 1.0]
+      offset_xyz: [0.0, 0.0, 0.0]
+      offset_rpy: [0.0, 0.0, 0.0]
 
+    # Trailer body rendered as a parametric CUBE sized by the geometry params
+    # (trailer_wheelbase + trailer_front_overhang + trailer_rear_overhang, ×
+    # trailer_width × trailer_height). The DAE mesh path is left empty so the
+    # visualizer's fallback box marker kicks in -- it's always the right size
+    # without re-scaling whenever trailer_wheelbase changes.
     trailer_mesh:
-      enable: true
-      resource: "package://electrans_robot_vehicle_description/mesh/electrans_trailer.dae"
-      scale: [0.25, 0.25, 0.25]
-      # Offset from trailer_link (trailer rear axle frame)
-      # Move mesh origin forward from trailer rear-axle frame to align kingpin with hitch.
-      offset_xyz: [7.1, 0.0, 0.0]
-      # Mesh forward axis is opposite of trailer_link heading, so flip 180 deg.
-      offset_rpy: [0.0, 0.0, 3.14159]
-
-    trailer:
-      wheelbase: 6.0          # [m] hitch to trailer rear axle
-      width: 1.0              # [m]
-      front_overhang: 0.2     # [m] hitch to front bumper
-      rear_overhang: 0.5      # [m] trailer rear axle to rear bumper
-      height: 1.5             # [m]
+      enable: false
+      resource: ""
+      scale: [1.0, 1.0, 1.0]
+      offset_xyz: [0.0, 0.0, 0.0]
+      offset_rpy: [0.0, 0.0, 0.0]
 
     publish_hitch_marker: true
     publish_hitch_text: true

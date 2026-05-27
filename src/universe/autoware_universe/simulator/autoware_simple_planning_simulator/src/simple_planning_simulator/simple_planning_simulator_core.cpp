@@ -954,11 +954,27 @@ void SimplePlanningSimulator::publish_trailer_state()
   const double hitch_angle = vehicle_model_ptr_->getHitchAngle();
   const double trailer_yaw = truck_yaw - hitch_angle;
 
+  // Finite-difference the hitch rate against the previous tick. The kinematic
+  // model integrates hitch angle internally but doesn't expose its derivative;
+  // downstream consumers (e.g. the RL bridge, the trailer-state visualizer)
+  // need a non-zero rate to react to jackknife events. First-tick guard
+  // (sentinel stamp) suppresses a spurious huge rate on startup.
+  const rclcpp::Time now_stamp = get_clock()->now();
+  float hitch_rate = 0.0f;
+  if (prev_trailer_stamp_.nanoseconds() > 0) {
+    const double dt = (now_stamp - prev_trailer_stamp_).seconds();
+    if (dt > 1e-6) {
+      hitch_rate = static_cast<float>((hitch_angle - prev_hitch_angle_) / dt);
+    }
+  }
+  prev_hitch_angle_ = hitch_angle;
+  prev_trailer_stamp_ = now_stamp;
+
   // Publish TrailerState message
   TrailerState ts_msg;
-  ts_msg.stamp = get_clock()->now();
+  ts_msg.stamp = now_stamp;
   ts_msg.hitch_angle = static_cast<float>(hitch_angle);
-  ts_msg.hitch_rate = 0.0f;  // not yet computed analytically
+  ts_msg.hitch_rate = hitch_rate;
   pub_trailer_state_->publish(ts_msg);
 
   // Derive trailer rear-axle position in map frame
