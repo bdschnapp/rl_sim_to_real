@@ -98,7 +98,7 @@ class RLBridgeNode(Node):
         e2erl_config.tractor_length_m = 1.0
         e2erl_config.tractor_width_m = 0.65
         e2erl_config.trailer_length_m = 2.0
-        e2erl_config.trailer_width_m = 0.33
+        e2erl_config.trailer_width_m = 0.5
         # Lane corridor: LL7's bounds span y∈[-1.81, +1.0] = 2.81 m wide,
         # so half-width 1.41 m. Small shoulder so lidar starts hitting the
         # boundary just past the painted edge.
@@ -106,10 +106,24 @@ class RLBridgeNode(Node):
         e2erl_config.lane_shoulder_m = 0.20
         e2erl_config.grid_res_m = 0.05
         e2erl_config.lane_sample_ds_m = 0.10
-        # BEV: 5 m square crop captures truck + trailer + a few m of lane.
-        e2erl_config.bev_obs_crop_m = 5.0
+        # BEV crop layout for the AgileX lab. World canvas is rotated so the
+        # truck's heading points "up" in the BEV (top of frame = ahead of
+        # truck, bottom = behind = trailer side). Anchor=center centres the
+        # crop on (rear_axle + bev_offset_x_m). Positive offset pushes the
+        # anchor (and hence the truck) DOWN in the BEV, freeing more pixels
+        # for the lane ahead.
+        #   - bev_offset_x_m=+1.0 puts the anchor 1 m AHEAD of the rear
+        #     axle, so the rear axle ends up 1 m below BEV centre. Truck
+        #     occupies the lower-centre of the frame, ~5 m of lane ahead
+        #     are visible above it, and the trailer drops into the bottom
+        #     ~2 m of the crop.
+        #   - bev_obs_crop_m=8.0 gives ~8 m × 8 m visible world area.
+        # This override is local to the bridge — training-time defaults in
+        # e2e_rl/e2erl_utils/config.py remain unchanged.
+        e2erl_config.bev_obs_crop_anchor_forward = "center"
+        e2erl_config.bev_obs_crop_m = 8.0
         e2erl_config.bev_zoom_scale = 1.0
-        e2erl_config.bev_offset_x_m = -1.0
+        e2erl_config.bev_offset_x_m = 1.0
         # Vehicle CG-to-axle distances: AgileX wheelbase 0.65 m split ~half.
         e2erl_config.tesla_model_s_vehicle_params = dict(
             e2erl_config.tesla_model_s_vehicle_params,

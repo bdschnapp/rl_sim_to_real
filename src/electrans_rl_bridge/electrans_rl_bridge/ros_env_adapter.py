@@ -83,6 +83,14 @@ class ROSLineFollowingAdapter:
         self.env_class_name = env_class_name
         self.world_scale = float(world_scale)
 
+        # The env hardcodes vehicle_params={'lf': 1.2, 'lr': 1.6, ...} inside
+        # TractorTrailerEnv.__init__ (not config-driven). That puts the rear
+        # axle 1.6 m behind the CG, which causes a ~1 m visible gap between
+        # the truck rectangle (TRACTOR_LENGTH=1.0 m, centered at CG) and the
+        # trailer rectangle (whose front is at the hitch = rear axle). Patch
+        # lf/lr to the AgileX wheelbase split so the trailer connects flush.
+        self._patch_vehicle_params(self.env)
+
         # Always-on BEV debug renderer. When the policy env is itself a BEV env
         # we reuse it; otherwise we spin up a separate BevObservationLineFollowingEnv
         # that mirrors the policy env's state on every tick so the bridge can
@@ -100,6 +108,7 @@ class ROSLineFollowingAdapter:
             sig = inspect.signature(BevObservationLineFollowingEnv.__init__)
             debug_kwargs = {k: v for k, v in debug_kwargs.items() if k in sig.parameters}
             self.debug_bev_env = BevObservationLineFollowingEnv(**debug_kwargs)
+            self._patch_vehicle_params(self.debug_bev_env)
 
         # The env's pygame canvas spans [0, WORLD_W] × [0, WORLD_H] meters,
         # with (0, 0) at the bottom-left corner. We always centre the truck
@@ -180,6 +189,19 @@ class ROSLineFollowingAdapter:
         self._apply_state_to(self.env, xs_local, ys_local)
         if self.debug_bev_env is not self.env:
             self._apply_state_to(self.debug_bev_env, xs_local, ys_local)
+
+    @staticmethod
+    def _patch_vehicle_params(env):
+        """The training env hardcodes lf=1.2, lr=1.6 (Tesla Model S scale)
+        in TractorTrailerEnv.__init__, which is wrong for the AgileX lab
+        robot. Patch the vehicle model after construction so the rear-axle
+        position used for trailer attachment matches the AgileX wheelbase."""
+        v = env.vehicle
+        # AgileX wheelbase = 0.65 m, split ~half-half around the CG so the
+        # rear axle is 0.325 m behind the CG (i.e. inside the 1.0 m tractor
+        # rectangle, not 1.6 m behind it where the trailer would float).
+        v.lf = 0.325
+        v.lr = 0.325
 
     def _apply_state_to(self, env, xs_local, ys_local):
         """Push centerline + vehicle + trailer state into an env in truck-local
