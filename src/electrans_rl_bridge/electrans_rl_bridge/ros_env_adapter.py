@@ -127,6 +127,13 @@ class ROSLineFollowingAdapter:
         self._xd = 0.0
         self._hitch_angle = 0.0
         self._path_set = False
+        # When True, the policy in use was trained against a Reverse* env
+        # (truck reset at yaw + π, vx < 0, motion along the path). In env
+        # frame we mirror that: rotate world by -yaw + π so env +X is the
+        # truck's BACKWARD direction (= the direction the truck physically
+        # needs to move when backing up), set v.p = π so the truck's nose
+        # in env-local points toward -X (matching training distribution).
+        self._is_reverse = False
 
     # ---------------------------------------------------------------- setters
     # All setters store ROS-frame state; get_observation() does a single
@@ -156,6 +163,11 @@ class ROSLineFollowingAdapter:
         """Definition (matches training-time): γ = tractor.p - trailer.yaw."""
         self._hitch_angle = float(hitch_angle)
 
+    def set_reverse_mode(self, is_reverse: bool):
+        """Switch between forward and reverse env-frame layout. See
+        _is_reverse in __init__ for the geometric meaning."""
+        self._is_reverse = bool(is_reverse)
+
     # --------------------------------------------------------------- observ.
     def has_path(self) -> bool:
         return self._path_set
@@ -178,7 +190,13 @@ class ROSLineFollowingAdapter:
 
     def _refresh_env(self):
         x, y, yaw = self._ego_pose
-        c, s = math.cos(-yaw), math.sin(-yaw)  # rotate world by -yaw -> truck-local
+        # Forward mode: rotate world by -yaw so env +X is truck heading.
+        # Reverse mode: rotate by -yaw + π so env +X is truck's BACKWARD
+        # direction — that's the direction the truck physically moves when
+        # backing up, and matches the reverse env's training-time setup
+        # where motion was along the path's +X with the truck facing -X.
+        rot_angle = -yaw + (math.pi if self._is_reverse else 0.0)
+        c, s = math.cos(rot_angle), math.sin(rot_angle)
 
         # Centerline in truck-local frame, then scaled.
         dx = self._raw_xs - x
@@ -242,17 +260,20 @@ class ROSLineFollowingAdapter:
         env._build_occupancy_grid()
 
         v = env.vehicle
-        v.x = self._world_offset_x   # vehicle at world centre, facing +X
+        v.x = self._world_offset_x   # vehicle at world centre
         v.y = self._world_offset_y
-        v.p = 0.0
+        # Forward mode: truck nose at env +X. Reverse mode: nose at env -X
+        # (matches Reverse* env training where p = path_tangent + π).
+        v.p = math.pi if self._is_reverse else 0.0
         v.s = self._steering
         v.xd = self._xd * self.world_scale
 
-        # Trailer in env-local. With v.p = 0, hitch is at (v.x - v.lr, v.y);
-        # trailer axle sits behind hitch by trailer.L along trailer yaw.
-        hitch_x = v.x - v.lr
-        hitch_y = v.y
-        trailer_yaw = -self._hitch_angle  # = v.p - hitch_angle, v.p == 0
+        # Trailer reconstruction from hitch angle. Works for both modes
+        # because we plug v.p into the standard formula; only the cos/sin
+        # values flip sign when v.p = π.
+        hitch_x = v.x - v.lr * math.cos(v.p)
+        hitch_y = v.y - v.lr * math.sin(v.p)
+        trailer_yaw = v.p - self._hitch_angle
         v.trailer.yaw = trailer_yaw
         v.trailer.x = hitch_x - v.trailer.L * math.cos(trailer_yaw)
         v.trailer.y = hitch_y - v.trailer.L * math.sin(trailer_yaw)

@@ -5,8 +5,9 @@ Subscribes:
   /localization/kinematic_state        nav_msgs/Odometry
   /vehicle/status/steering_status      autoware_vehicle_msgs/SteeringReport
   /vehicle/trailer_state               autoware_vehicle_msgs/TrailerState
-  /planning/lane_reference/centerline  nav_msgs/Path
+  /planning/lane_reference/centerline    nav_msgs/Path
   /planning/lane_reference/drive_enabled std_msgs/Bool
+  /planning/lane_reference/drive_direction std_msgs/Bool  [True = reverse]
 
 Publishes:
   /control/command/control_cmd         autoware_control_msgs/Control
@@ -54,6 +55,11 @@ class RLBridgeNode(Node):
         # ----- params -----
         self.declare_parameter("e2e_rl_path", "/home/ben/Ben/Thesis/e2e_rl")
         self.declare_parameter("td3_model_path", "")
+        # Optional reverse-trained checkpoint. If empty, the bridge runs in
+        # forward-only mode and ignores /planning/lane_reference/drive_direction.
+        # If set, the bridge loads BOTH policies at startup and picks each
+        # tick based on the drive_direction topic.
+        self.declare_parameter("td3_reverse_model_path", "")
         self.declare_parameter("action_space", "fixed_speed")  # or 'variable_speed'
         self.declare_parameter("control_rate_hz", 10.0)
         self.declare_parameter("max_steering_rad", math.pi / 4.0)
@@ -67,6 +73,7 @@ class RLBridgeNode(Node):
 
         self.e2e_rl_path = str(self.get_parameter("e2e_rl_path").value)
         self.model_path = str(self.get_parameter("td3_model_path").value)
+        self.reverse_model_path = str(self.get_parameter("td3_reverse_model_path").value)
         self.action_space = str(self.get_parameter("action_space").value)
         self.control_rate_hz = float(self.get_parameter("control_rate_hz").value)
         self.max_steering = float(self.get_parameter("max_steering_rad").value)
@@ -181,11 +188,47 @@ class RLBridgeNode(Node):
         state_dict = torch.load(self.model_path, map_location=self.model.device)
         self.model.policy.load_state_dict(state_dict)
 
+        # Optional reverse policy. If the path is provided AND the file
+        # exists, build a second TD3 with the same env-frame so we can swap
+        # between forward and reverse per tick. Their policy_kwargs may
+        # differ (e.g. different features_extractor_kwargs), so we load the
+        # reverse meta independently.
+        self.reverse_model = None
+        if self.reverse_model_path and os.path.exists(self.reverse_model_path):
+            reverse_meta_path = (
+                os.path.splitext(self.reverse_model_path)[0] + ".policy_kwargs.pkl"
+            )
+            with open(reverse_meta_path, "rb") as f:
+                reverse_meta = pickle.load(f)
+            self.get_logger().info(
+                f"Loading reverse TD3 policy state from {self.reverse_model_path}"
+            )
+            self.reverse_model = TD3(
+                policy=sb3_policy_class,
+                env=self.adapter.env,
+                policy_kwargs=reverse_meta["policy_kwargs"],
+                buffer_size=1,
+                device="auto",
+            )
+            rev_state_dict = torch.load(
+                self.reverse_model_path, map_location=self.reverse_model.device
+            )
+            self.reverse_model.policy.load_state_dict(rev_state_dict)
+        elif self.reverse_model_path:
+            self.get_logger().warn(
+                f"td3_reverse_model_path is set to '{self.reverse_model_path}' but "
+                "the file does not exist — running forward-only."
+            )
+
         # ----- state caches -----
         self._ego: Optional[tuple] = None        # (x, y, yaw, xd)
         self._steering: float = 0.0              # measured tire angle (rad)
         self._hitch_angle: float = 0.0           # rad
         self._drive_enabled: bool = False
+        # Set from /planning/lane_reference/drive_direction; chooses which
+        # policy + adapter mode to run on each tick. Ignored when only the
+        # forward checkpoint is loaded.
+        self._drive_reverse: bool = False
         self._target_steering: float = 0.0       # integrated from action[0]
         self._dt = 1.0 / self.control_rate_hz
 
@@ -203,6 +246,9 @@ class RLBridgeNode(Node):
         self.create_subscription(TrailerState, "/vehicle/trailer_state", self._on_trailer, 10)
         self.create_subscription(Path, "/planning/lane_reference/centerline", self._on_centerline, 1)
         self.create_subscription(Bool, "/planning/lane_reference/drive_enabled", self._on_drive, 1)
+        self.create_subscription(
+            Bool, "/planning/lane_reference/drive_direction", self._on_drive_direction, 1
+        )
 
         self.create_timer(self._dt, self._on_control_tick)
         self.create_timer(1.0, self._on_gear_tick)
@@ -238,6 +284,14 @@ class RLBridgeNode(Node):
     def _on_drive(self, msg: Bool):
         self._drive_enabled = bool(msg.data)
 
+    def _on_drive_direction(self, msg: Bool):
+        new_reverse = bool(msg.data)
+        if new_reverse != self._drive_reverse:
+            self.get_logger().info(
+                f"drive_direction changed → {'REVERSE' if new_reverse else 'FORWARD'}"
+            )
+        self._drive_reverse = new_reverse
+
     # --------------------------------------------------------------- tick
     def _on_control_tick(self):
         if self._ego is None or not self.adapter.has_path():
@@ -249,6 +303,12 @@ class RLBridgeNode(Node):
         if abs(self._target_steering) < 1e-6 and abs(self._steering) > 1e-6:
             self._target_steering = self._steering
 
+        # Pick policy + adapter frame for this tick. Only honour drive_reverse
+        # if we actually loaded a reverse checkpoint; otherwise stay forward.
+        is_reverse = self._drive_reverse and self.reverse_model is not None
+        self.adapter.set_reverse_mode(is_reverse)
+        active_model = self.reverse_model if is_reverse else self.model
+
         self.adapter.set_ego_state(x, y, yaw, self._target_steering, xd)
         self.adapter.set_trailer_state_from_hitch(self._hitch_angle)
 
@@ -258,14 +318,19 @@ class RLBridgeNode(Node):
             self.get_logger().warn(f"observation failed: {e}")
             return
 
-        action, _ = self.model.predict(obs, deterministic=True)
+        action, _ = active_model.predict(obs, deterministic=True)
         action = np.asarray(action).flatten()
 
         steering_rate = float(action[0])
         if self.action_space == "variable_speed" and action.size >= 2:
+            # variable_speed policies emit the signed longitudinal velocity
+            # directly; reverse-trained policies already produce vx<0, so we
+            # trust the action.
             velocity_cmd = float(action[1])
         else:
-            velocity_cmd = self.default_velocity
+            # fixed_speed policies don't emit a velocity; we apply the
+            # configured magnitude with a sign flip in reverse mode.
+            velocity_cmd = -self.default_velocity if is_reverse else self.default_velocity
 
         if self._drive_enabled:
             self._target_steering = float(
@@ -292,6 +357,16 @@ class RLBridgeNode(Node):
         kp = 1.0  # accel gain in 1/s; tuned so 1 m/s error => 1 m/s^2 accel
         accel_lim = 2.0  # m/s^2, comfortable
         accel_cmd = float(np.clip(kp * (velocity_cmd - current_v), -accel_lim, accel_lim))
+
+        # The sim's set_input flips the acceleration sign in REVERSE gear:
+        # combined_acc = -acc_by_cmd. simple_planning_simulator_core.cpp:637-638.
+        # Then sim_model_delay_steer_acc_geared_trailer.cpp:211-213 forces
+        # VX=0 when REVERSE-gear and VX>0. So if we sent the raw negative
+        # accel_cmd in reverse, sim would flip it positive and immediately
+        # zero the velocity every tick. Pre-flip here so the sim's flip
+        # cancels and combined_acc keeps the sign the P-controller wanted.
+        if is_reverse:
+            accel_cmd = -accel_cmd
 
         # ---- publish Control ----
         ctl = Control()
@@ -336,9 +411,14 @@ class RLBridgeNode(Node):
             self.pub_bev.publish(img_msg)
 
     def _on_gear_tick(self):
+        # The sim's DELAY_STEER_ACC_GEARED_TRAILER vehicle model uses the gear
+        # command to decide the sign convention on acceleration; the real
+        # vehicle's gear interface follows the same convention. Mirror the
+        # active drive direction so both stay consistent.
+        is_reverse = self._drive_reverse and self.reverse_model is not None
         msg = GearCommand()
         msg.stamp = self.get_clock().now().to_msg()
-        msg.command = GearCommand.DRIVE
+        msg.command = GearCommand.REVERSE if is_reverse else GearCommand.DRIVE
         self.pub_gear.publish(msg)
 
 

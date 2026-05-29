@@ -35,6 +35,17 @@ def main() -> int:
         default="/home/ben/Ben/Thesis/e2e_rl",
         help="path containing Models/ and Environments/ for SB3 unpickling",
     )
+    p.add_argument(
+        "--reverse",
+        action="store_true",
+        help=(
+            "Use the Reverse* env class variants for the detected obs shape. "
+            "Required for any checkpoint trained against ReverseState/"
+            "ReverseLidar/ReverseBev envs (e.g. models/reverse/...). The obs "
+            "and action spaces don't distinguish forward vs reverse, so this "
+            "must be set explicitly by the caller."
+        ),
+    )
     args = p.parse_args()
 
     if args.e2e_rl_path not in sys.path:
@@ -56,7 +67,7 @@ def main() -> int:
     # Pick the matching e2e_rl env class from the observation space shape, so
     # the bridge can re-instantiate the right env at runtime without the user
     # having to remember which checkpoint goes with which obs pipeline.
-    env_class_module, env_class_name, env_kwargs = _detect_env(model)
+    env_class_module, env_class_name, env_kwargs = _detect_env(model, reverse=args.reverse)
     print(f"  env: {env_class_module}.{env_class_name} kwargs={env_kwargs}")
 
     # The policy needs the same constructor kwargs at load time. Save them as
@@ -78,22 +89,35 @@ def main() -> int:
     return 0
 
 
-def _detect_env(model):
+def _detect_env(model, reverse: bool = False):
     """Pick the e2e_rl env class + kwargs that matches the model's observation
-    space. The three forward lane-following options are:
+    space. The three lane-following obs options are:
 
       - BevObservationLineFollowingEnv (Dict obs: image 32x32x1 + 8-dim vector)
       - StateObservationLineFollowingEnv (Box(8,))
       - LidarStateObservationLineFollowingEnv (Box(8 + lidar_beams,))
+
+    When reverse=True, the Reverse* counterpart is selected instead. All
+    reverse variants live in Environments.LineFollowing as well; the lidar
+    one is ReverseLidarStateObservationLineFollowingEnv (NOT in
+    Environments.ObstacleAvoidance, unlike the forward variant).
     """
     from gymnasium import spaces
 
     obs = model.observation_space
     if isinstance(obs, spaces.Dict) and {"image", "vector"} <= set(obs.spaces):
-        return "Environments.LineFollowing", "BevObservationLineFollowingEnv", {}
+        cls = "ReverseBevObservationLineFollowingEnv" if reverse else "BevObservationLineFollowingEnv"
+        return "Environments.LineFollowing", cls, {}
     if isinstance(obs, spaces.Box) and obs.shape == (8,):
-        return "Environments.LineFollowing", "StateObservationLineFollowingEnv", {}
+        cls = "ReverseStateObservationLineFollowingEnv" if reverse else "StateObservationLineFollowingEnv"
+        return "Environments.LineFollowing", cls, {}
     if isinstance(obs, spaces.Box) and len(obs.shape) == 1 and obs.shape[0] > 8:
+        if reverse:
+            return (
+                "Environments.LineFollowing",
+                "ReverseLidarStateObservationLineFollowingEnv",
+                {"lidar_beams": int(obs.shape[0] - 8)},
+            )
         return (
             "Environments.ObstacleAvoidance",
             "LidarStateObservationLineFollowingEnv",

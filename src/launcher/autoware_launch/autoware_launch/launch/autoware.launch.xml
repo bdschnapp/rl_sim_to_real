@@ -21,6 +21,7 @@
        tier4_control_component.launch.xml / electrans_rl_bridge.launch.xml.
        lanelet2_map_file is declared further down (line 51) and reused here. -->
   <arg name="td3_model_path" default="/home/ben/Ben/Thesis/e2e_rl/models/forward/lidar_24/multiplicative/best_model.policy.pth"/>
+  <arg name="td3_reverse_model_path" default="/home/ben/Ben/Thesis/e2e_rl/models/reverse/lidar_24/multiplicative/best_model.policy.pth"/>
   <arg name="e2e_rl_path" default="/home/ben/Ben/Thesis/e2e_rl"/>
   <arg name="action_space" default="fixed_speed"/>
   <arg name="control_rate_hz" default="10.0"/>
@@ -145,6 +146,7 @@
       <arg name="vehicle_model" value="$(var vehicle_model)"/>
       <!-- electrans_rl_bridge plumbing -->
       <arg name="td3_model_path" value="$(var td3_model_path)"/>
+      <arg name="td3_reverse_model_path" value="$(var td3_reverse_model_path)"/>
       <arg name="e2e_rl_path" value="$(var e2e_rl_path)"/>
       <arg name="map_path" value="$(var map_path)"/>
       <arg name="lanelet2_map_file" value="$(var lanelet2_map_file)"/>

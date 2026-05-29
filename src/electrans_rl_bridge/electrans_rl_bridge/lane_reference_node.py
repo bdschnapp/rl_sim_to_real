@@ -6,20 +6,31 @@ deserialized from Python — fromBinMsg is C++-only — so we use the same OSM
 file the map_loader was given). Subscribes to ego odometry + an optional goal
 pose. Publishes:
 
-  /planning/lane_reference/centerline   nav_msgs/Path
-  /planning/lane_reference/drive_enabled std_msgs/Bool
+  /planning/lane_reference/centerline       nav_msgs/Path   (latched, transient_local)
+  /planning/lane_reference/drive_enabled    std_msgs/Bool   (latched)
+  /planning/lane_reference/drive_direction  std_msgs/Bool   (latched; True = reverse)
 
-Active-lane selection:
-  1. getCurrentLanelets(ego_xy) -> candidates
-  2. If multiple, pick the one whose tangent yaw matches ego yaw best
-     (handles bidirectional overlap).
-  3. If a goal is set: prefer a candidate that has a routing path to the goal.
+Active-lane selection (post-bidirectional-collapse: each point is contained in
+at most one lanelet, so yaw-tangent disambiguation is no longer required):
+  1. getCurrentLanelets(ego_xy) -> candidates.
+  2. If a goal is set, prefer the candidate that ALSO contains the goal.
+     This is the lanelet on which getArcCoordinates gives meaningful direction
+     inference (s_goal < s_ego => reverse). Goals that fall in a different
+     lanelet or in empty space are flagged once via a console warning; the
+     bridge still drives on the ego candidate.
+  3. Hysteresis on lanelet id stops short-lived flapping at boundaries.
 
 Centerline output is the active lanelet concatenated with N forward successors
 (default 50 m), refined with utilities.generateFineCenterline(resolution=0.5 m).
 
 drive_enabled goes True when: a goal is set, the goal is far enough (> 2 m),
 an active lanelet is found, and a path was successfully published.
+
+drive_direction goes True (reverse) when the truck must physically drive in
+reverse to reach the goal — i.e. the lane direction needed to reach the goal
+disagrees with the truck's current heading. Computed from
+goal_downstream (s_goal vs s_ego on canonical) XOR heading_canonical_aligned
+(dot product of ego heading with canonical tangent at ego).
 """
 
 from __future__ import annotations
@@ -32,9 +43,18 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
 
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import Point, Pose, PoseStamped, Quaternion
 from nav_msgs.msg import Odometry, Path
 from std_msgs.msg import Bool
+
+
+def _pose_at(x: float, y: float) -> Pose:
+    """Build a yaw-agnostic Pose at (x, y, 0). Arc-length / containment
+    queries on the lanelet2 utility API only read .position."""
+    p = Pose()
+    p.position = Point(x=float(x), y=float(y), z=0.0)
+    p.orientation = Quaternion(x=0.0, y=0.0, z=0.0, w=1.0)
+    return p
 
 
 def _quat_to_yaw(qx: float, qy: float, qz: float, qw: float) -> float:
@@ -116,6 +136,17 @@ class LaneReferenceNode(Node):
         self._ego_pose: Optional[tuple] = None  # (x, y, yaw)
         self._goal_pose: Optional[tuple] = None  # (x, y)
         self._last_active_id: Optional[int] = None
+        # Drive direction is latched at goal-set time and held until the next
+        # goal arrives. Recomputing every tick produces flapping near the goal
+        # (s_goal - s_ego crosses zero) and near lanelet seams (tangent jumps
+        # ± across segment boundaries when the projection switches segments).
+        # None means "no goal yet, or first tick since a new goal was set —
+        # decide on the next tick where we have an active lanelet".
+        self._goal_drive_reverse: Optional[bool] = None
+        # Track whether we've already logged the "goal not on ego's lanelet"
+        # warning so we don't spam the console every tick while the user
+        # leaves a stale goal in a non-adjacent lanelet.
+        self._warned_goal_off_lanelet: bool = False
 
         # ----- pub / sub -----
         transient = QoSProfile(
@@ -127,6 +158,12 @@ class LaneReferenceNode(Node):
 
         self.pub_path = self.create_publisher(Path, "/planning/lane_reference/centerline", transient)
         self.pub_drive = self.create_publisher(Bool, "/planning/lane_reference/drive_enabled", transient)
+        # True = drive in REVERSE along the canonical lanelet direction (goal is
+        # upstream of the ego on the active lanelet's arc-length parameterisation).
+        # Latched so the bridge picks up the last decision even if it subscribes late.
+        self.pub_drive_direction = self.create_publisher(
+            Bool, "/planning/lane_reference/drive_direction", transient
+        )
 
         self.create_subscription(Odometry, "/localization/kinematic_state", self._on_odom, 10)
         # autoware.rviz wires the SetGoal tool to /planning/mission_planning/goal
@@ -143,56 +180,83 @@ class LaneReferenceNode(Node):
 
     def _on_goal(self, msg: PoseStamped):
         self._goal_pose = (msg.pose.position.x, msg.pose.position.y)
+        # New goal -> reset the off-lanelet warning latch so the user gets a
+        # fresh warning if this goal also lands in a non-adjacent lanelet.
+        self._warned_goal_off_lanelet = False
+        # New goal -> drop the cached direction decision so the next timer
+        # tick recomputes it against this goal's geometry.
+        self._goal_drive_reverse = None
         self.get_logger().info(f"Goal set: ({self._goal_pose[0]:.2f}, {self._goal_pose[1]:.2f})")
 
     # --------------------------------------------------------- active lane
     def _pick_active_lanelet(self):
+        """Pick the lanelet that should drive the centerline + direction-inference
+        logic. After the bidirectional-collapse Milestone 2, each point is
+        contained in at most one lanelet, so the yaw-vs-tangent disambiguation
+        we used to need is moot. New policy:
+
+          1. Find lanelets containing the ego point.
+          2. If a goal is set, find lanelets containing the goal and prefer
+             the ego-candidate that also contains the goal — that's the
+             lanelet on which `getArcCoordinates` will give a meaningful
+             `s_ego < s_goal` (or `>`, indicating reverse).
+          3. If no overlap with the goal's lanelet, log once and fall back to
+             the ego candidate (the bridge will still drive correctly thanks
+             to the local-tangent flip in ros_env_adapter, but direction
+             inference will be undefined until the goal moves onto the
+             ego's lanelet — multi-lanelet routing is out of scope here).
+          4. Hysteresis on ID still applies as a tiebreaker.
+        """
         if self._ego_pose is None:
             return None
-        ex, ey, eyaw = self._ego_pose
-        from geometry_msgs.msg import Point as RosPoint
-        ego_point = RosPoint(x=ex, y=ey, z=0.0)
-        candidates = self._query.getCurrentLanelets(self.all_lanelets, ego_point)
-        if not candidates:
-            # Fall back to nearest
-            from geometry_msgs.msg import Pose as RosPose
-            from geometry_msgs.msg import Quaternion
-            pose = RosPose()
-            pose.position.x, pose.position.y = ex, ey
-            pose.orientation = Quaternion(x=0.0, y=0.0, z=0.0, w=1.0)
+        ex, ey, _ = self._ego_pose
+        ego_point = Point(x=ex, y=ey, z=0.0)
+        ego_candidates = list(
+            self._query.getCurrentLanelets(self.all_lanelets, ego_point)
+        )
+        if not ego_candidates:
+            # Off-lanelet ego: fall back to nearest lanelet so the bridge has
+            # something to project onto.
             try:
-                return self._query.getClosestLanelet(self.all_lanelets, pose)
+                return self._query.getClosestLanelet(self.all_lanelets, _pose_at(ex, ey))
             except Exception:
                 return None
 
-        # Tangent vs ego-yaw alignment error per candidate.
-        scored = []
-        for ll in candidates:
-            try:
-                tangent = self._utilities.getLaneletAngle(ll, ego_point)
-            except Exception:
-                continue
-            err = abs(_angle_diff(eyaw, tangent))
-            scored.append((err, ll))
-        if not scored:
-            return None
-        scored.sort(key=lambda x: x[0])
-        best_err, best = scored[0]
+        # Goal-aware narrowing: prefer the candidate that also contains the goal.
+        if self._goal_pose is not None:
+            gx, gy = self._goal_pose
+            goal_point = Point(x=gx, y=gy, z=0.0)
+            goal_candidates = list(
+                self._query.getCurrentLanelets(self.all_lanelets, goal_point)
+            )
+            goal_ids = {g.id for g in goal_candidates}
+            overlap = [ll for ll in ego_candidates if ll.id in goal_ids]
+            if overlap:
+                ego_candidates = overlap
+                self._warned_goal_off_lanelet = False
+            elif not self._warned_goal_off_lanelet:
+                if goal_candidates:
+                    self.get_logger().warn(
+                        f"Goal lanelet(s) {goal_ids} are not the ego lanelet(s) "
+                        f"{[ll.id for ll in ego_candidates]}; multi-lanelet routing "
+                        "is out of scope. Direction inference is undefined until "
+                        "ego and goal are on the same lanelet."
+                    )
+                else:
+                    self.get_logger().warn(
+                        f"Goal pose ({gx:.2f}, {gy:.2f}) is not inside any "
+                        "lanelet; direction inference is undefined until the "
+                        "goal is moved onto a drivable lane."
+                    )
+                self._warned_goal_off_lanelet = True
 
-        # Hysteresis: with two parallel opposite-direction lanelets the
-        # alignment error is nearly identical near yaw=±π/2 and noise flips
-        # the choice. If the previously-active lanelet is still a candidate
-        # and its tangent-error is within a margin of the new best, keep it.
-        # Without this the ref path direction flips every tick and the policy
-        # commands max steer.
-        margin = math.radians(45.0)
+        # Hysteresis: stick with the previously-active lanelet if it's still
+        # in the candidate set, to avoid id flapping on lanelet boundaries.
         if self._last_active_id is not None:
-            prev = next((ll for _, ll in scored if ll.id == self._last_active_id), None)
+            prev = next((ll for ll in ego_candidates if ll.id == self._last_active_id), None)
             if prev is not None:
-                prev_err = next(e for e, ll in scored if ll.id == self._last_active_id)
-                if prev_err <= best_err + margin:
-                    return prev
-        return best
+                return prev
+        return ego_candidates[0]
 
     def _concat_centerline(self, active_lanelet) -> List[tuple]:
         # Build seq = [N predecessors] + [active] + [as many successors as
@@ -302,10 +366,70 @@ class LaneReferenceNode(Node):
             drive = dist > self.goal_reached_distance_m
         self._publish_drive(drive)
 
+        # Direction inference: latch once per goal. Recomputing every tick
+        # produces flapping as the truck approaches the goal (s_goal - s_ego
+        # crosses zero) or when its projected segment on the active lanelet
+        # changes (tangent jumps). With one goal -> one direction, the bridge
+        # commits to that direction and goal_reached_distance_m stops it.
+        if self._goal_pose is None:
+            # No goal: clear latch so the next goal gets a fresh decision,
+            # and default to forward for subscribers' initial state.
+            self._goal_drive_reverse = None
+            drive_reverse = False
+        else:
+            if self._goal_drive_reverse is None:
+                self._goal_drive_reverse = self._infer_drive_reverse(active)
+                self.get_logger().info(
+                    f"Drive direction latched: "
+                    f"{'REVERSE' if self._goal_drive_reverse else 'FORWARD'}"
+                )
+            drive_reverse = self._goal_drive_reverse
+        self._publish_drive_direction(drive_reverse)
+
+    def _infer_drive_reverse(self, active_lanelet) -> bool:
+        """Return True iff the truck should physically drive in REVERSE (gear
+        reversed, vehicle moves opposite to its heading) to reach the goal.
+
+        Logic: motion direction needed is "toward the goal along the lane";
+        truck heading may agree or disagree with the lane's canonical
+        direction at the ego. Combining the two:
+          - goal_downstream = s_goal > s_ego (goal further along canonical)
+          - heading_canonical_aligned = ego heading · canonical tangent at ego > 0
+          - drive_reverse = goal_downstream XOR heading_canonical_aligned
+        which is True iff motion direction != ego heading direction.
+        """
+        if self._goal_pose is None or self._ego_pose is None:
+            return False
+        ex, ey, eyaw = self._ego_pose
+        gx, gy = self._goal_pose
+        try:
+            s_ego = self._arc_length_on(active_lanelet, ex, ey)
+            s_goal = self._arc_length_on(active_lanelet, gx, gy)
+            tangent = self._utilities.getLaneletAngle(
+                active_lanelet, Point(x=ex, y=ey, z=0.0)
+            )
+        except Exception as e:
+            self.get_logger().warn(f"Arc-length inference failed: {e}")
+            return False
+        goal_downstream = s_goal > s_ego
+        heading_canonical_aligned = math.cos(eyaw - tangent) > 0.0
+        return goal_downstream != heading_canonical_aligned
+
+    def _arc_length_on(self, lanelet, x: float, y: float) -> float:
+        """Project (x, y) onto `lanelet` and return its arc-length distance
+        from the lanelet's canonical start."""
+        arc = self._utilities.getArcCoordinates([lanelet], _pose_at(x, y))
+        return float(arc.length)
+
     def _publish_drive(self, val: bool):
         msg = Bool()
         msg.data = bool(val)
         self.pub_drive.publish(msg)
+
+    def _publish_drive_direction(self, reverse: bool):
+        msg = Bool()
+        msg.data = bool(reverse)
+        self.pub_drive_direction.publish(msg)
 
 
 def main():

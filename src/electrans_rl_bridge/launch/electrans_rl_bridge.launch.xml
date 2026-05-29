@@ -4,6 +4,7 @@
        to sys.path so they can import Environments / Models / e2erl_utils. -->
   <arg name="e2e_rl_path" default="/home/ben/Ben/Thesis/e2e_rl"/>
   <arg name="td3_model_path" default="/home/ben/Ben/Thesis/e2e_rl/models/forward/lidar_24/multiplicative/best_model.policy.pth"/>
+  <arg name="td3_reverse_model_path" default="/home/ben/Ben/Thesis/e2e_rl/models/reverse/lidar_24/multiplicative/best_model.policy.pth"/>
 
   <!-- Lanelet2 map: must match what autoware_map_loader was given. The MVSL lab
        map is a Local-projection map (lat="" lon="" + local_x/local_y tags);
@@ -44,6 +45,7 @@
   <node pkg="electrans_rl_bridge" exec="rl_bridge_node" name="rl_bridge_node" output="screen">
     <param name="e2e_rl_path" value="$(var e2e_rl_path)"/>
     <param name="td3_model_path" value="$(var td3_model_path)"/>
+    <param name="td3_reverse_model_path" value="$(var td3_reverse_model_path)"/>
     <param name="action_space" value="$(var action_space)"/>
     <param name="control_rate_hz" value="$(var control_rate_hz)"/>
     <param name="default_velocity_mps" value="$(var default_velocity_mps)"/>
