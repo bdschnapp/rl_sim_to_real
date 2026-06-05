@@ -85,6 +85,14 @@ class LaneReferenceNode(Node):
         self.map_file = self.get_parameter("lanelet2_map_file").value
         self.forward_horizon_m = float(self.get_parameter("forward_horizon_m").value)
         self.centerline_resolution_m = float(self.get_parameter("centerline_resolution_m").value)
+        from rcl_interfaces.msg import SetParametersResult
+        def _on_set_params(params):
+            for p in params:
+                if p.name == "centerline_resolution_m":
+                    self.centerline_resolution_m = float(p.value)
+                    self.get_logger().info(f"centerline_resolution_m -> {self.centerline_resolution_m}")
+            return SetParametersResult(successful=True)
+        self.add_on_set_parameters_callback(_on_set_params)
         self.goal_reached_distance_m = float(self.get_parameter("goal_reached_distance_m").value)
         self.publish_rate_hz = float(self.get_parameter("publish_rate_hz").value)
 

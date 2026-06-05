@@ -70,6 +70,32 @@ class RLBridgeNode(Node):
         # training-scale obs. Bridge then divides the policy's velocity
         # output by world_scale before commanding the small vehicle.
         self.declare_parameter("world_scale", 1.0)
+        # Deployment-side velocity clamp applied AFTER the policy's chosen
+        # velocity (variable-speed only). The lab-trained policy can output
+        # up to 3 m/s, which is faster than the AgileX hardware should run
+        # in the MVSL space. Clamping to ~0.8 m/s here keeps the policy's
+        # *intent* (slow for curves, faster on straights) but capped to a
+        # safe absolute speed for the real robot / sim. Min clamp prevents
+        # the policy from idling below a useful crawl speed.
+        self.declare_parameter("bridge_velocity_min", 0.1)
+        self.declare_parameter("bridge_velocity_max", 0.8)
+        # Reverse driving is harder to control (trailer leads, non-minimum-phase
+        # dynamics) and feels visibly faster in the MVSL space, so the reverse
+        # cap defaults lower than forward.
+        self.declare_parameter("bridge_velocity_max_reverse", 0.4)
+        # Multiplier applied to the reverse policy's commanded steer rate
+        # (and the integrated target tire angle) before publication. 1.0 =
+        # pass-through. Slightly >1 compensates for ROS actuator lag that
+        # pygame training didn't include.
+        self.declare_parameter("reverse_steer_rate_gain", 1.0)
+        # EMA smoothing factor for the reverse policy's raw steer_rate output.
+        # Reverse policy output exhibits 5 Hz alternating bang-bang rates that
+        # pygame (zero actuator lag) can execute but ROS's 50-150 ms actuator
+        # delay turns into destructive oscillation. alpha=1.0 = no smoothing
+        # (pass through). alpha=0.3 = each tick is 30% new + 70% previous,
+        # giving ~3-tick effective averaging. Forward driving is left
+        # unfiltered.
+        self.declare_parameter("reverse_steer_rate_ema_alpha", 0.3)
 
         self.e2e_rl_path = str(self.get_parameter("e2e_rl_path").value)
         self.model_path = str(self.get_parameter("td3_model_path").value)
@@ -79,6 +105,13 @@ class RLBridgeNode(Node):
         self.max_steering = float(self.get_parameter("max_steering_rad").value)
         self.default_velocity = float(self.get_parameter("default_velocity_mps").value)
         self.world_scale = float(self.get_parameter("world_scale").value)
+        self.bridge_v_min = float(self.get_parameter("bridge_velocity_min").value)
+        self.bridge_v_max = float(self.get_parameter("bridge_velocity_max").value)
+        self.bridge_v_max_reverse = float(self.get_parameter("bridge_velocity_max_reverse").value)
+        self.reverse_steer_rate_gain = float(self.get_parameter("reverse_steer_rate_gain").value)
+        self.reverse_steer_rate_ema_alpha = float(self.get_parameter("reverse_steer_rate_ema_alpha").value)
+        self._reverse_steer_rate_ema = 0.0
+        self._last_kine_scale = 1.0
 
         if not self.model_path:
             raise RuntimeError("rl_bridge_node: td3_model_path parameter is required")
@@ -105,7 +138,9 @@ class RLBridgeNode(Node):
         e2erl_config.tractor_length_m = 1.0
         e2erl_config.tractor_width_m = 0.65
         e2erl_config.trailer_length_m = 2.0
-        e2erl_config.trailer_width_m = 0.5
+        # Trailer width matches the tractor width — the real AgileX trailer
+        # is roughly the same width as the truck, not a narrower box.
+        e2erl_config.trailer_width_m = 0.65
         # Lane corridor: LL7's bounds span y∈[-1.81, +1.0] = 2.81 m wide,
         # so half-width 1.41 m. Small shoulder so lidar starts hitting the
         # boundary just past the painted edge.
@@ -136,6 +171,22 @@ class RLBridgeNode(Node):
             e2erl_config.tesla_model_s_vehicle_params,
             lf=0.33, lr=0.32,
         )
+
+        # If the loaded policy was trained variable-speed (2-D action),
+        # the env it was built against had its action_space overridden to
+        # [steer_rate, velocity] with velocity bounded to [v_min, v_max].
+        # LidarStateObservationLineFollowingEnv has no fixed_speed kwarg
+        # so the adapter silently drops it; without this patch the env
+        # defaults to fixed_speed=True → 1-D action space → state_dict
+        # load fails with a shape mismatch on actor.mu.4. Mirrors
+        # train_lab_model._patch_variable_speed_action exactly.
+        if self.action_space == "variable_speed":
+            # v_min/v_max here must match the policy's training action
+            # space exactly — the state_dict shape depends on it via
+            # SB3's TanhSquasher. v13+: 0.5/3.0. Earlier checkpoints
+            # (v9-v12) trained with 0.1/3.0; override at launch if loading
+            # one of those.
+            self._patch_variable_speed_envs(v_min=0.5, v_max=3.0)
 
         # CNNFeatureExtractor must be importable in scope before TD3 is built
         # (it's referenced in the saved policy_kwargs).
@@ -200,18 +251,58 @@ class RLBridgeNode(Node):
             )
             with open(reverse_meta_path, "rb") as f:
                 reverse_meta = pickle.load(f)
+
+            # Detect the reverse checkpoint's action dim by peeking at the
+            # final actor layer in the state dict. The forward env was
+            # patched to 2-D variable-speed above; the reverse env may
+            # need the same (v15+) or stay 1-D (legacy v4). Mismatch =>
+            # state_dict load fails with size mismatch on actor.mu.4.
+            rev_state_dict = torch.load(self.reverse_model_path, map_location="cpu")
+            rev_action_dim = int(rev_state_dict["actor.mu.4.weight"].shape[0])
             self.get_logger().info(
-                f"Loading reverse TD3 policy state from {self.reverse_model_path}"
+                f"Reverse checkpoint action_dim = {rev_action_dim} "
+                f"({'variable-speed' if rev_action_dim == 2 else 'fixed-speed'})"
+            )
+            if rev_action_dim == 2:
+                # Patch the reverse env class to variable-speed bounds
+                # matching forward training (must agree with how the
+                # reverse model was trained).
+                self._patch_reverse_env_variable_speed(v_min=0.5, v_max=3.0)
+
+            # Build a SEPARATE env for the reverse policy. Its action_space
+            # must match the reverse checkpoint's actor.mu output dim. The
+            # reverse env is NEVER stepped — TD3 only inspects its
+            # action_space and observation_space at construction. Per-tick
+            # the bridge feeds obs from the forward adapter to
+            # reverse_model.predict().
+            import importlib, inspect
+            rev_env_class_name = reverse_meta.get(
+                "env_class_name", "ReverseStateObservationLineFollowingEnv"
+            )
+            rev_env_class_module = reverse_meta.get(
+                "env_class_module", "Environments.LineFollowing"
+            )
+            rev_env_kwargs = dict(reverse_meta.get("env_kwargs", {}))
+            rev_mod = importlib.import_module(rev_env_class_module)
+            rev_env_cls = getattr(rev_mod, rev_env_class_name)
+            rev_init_kwargs = {"render_mode": None, "reward_mode": "dense"}
+            rev_init_kwargs.update(rev_env_kwargs)
+            rev_sig = inspect.signature(rev_env_cls.__init__)
+            rev_init_kwargs = {
+                k: v for k, v in rev_init_kwargs.items() if k in rev_sig.parameters
+            }
+            reverse_env = rev_env_cls(**rev_init_kwargs)
+
+            self.get_logger().info(
+                f"Loading reverse TD3 policy state from {self.reverse_model_path} "
+                f"(env action_space={reverse_env.action_space})"
             )
             self.reverse_model = TD3(
                 policy=sb3_policy_class,
-                env=self.adapter.env,
+                env=reverse_env,
                 policy_kwargs=reverse_meta["policy_kwargs"],
                 buffer_size=1,
                 device="auto",
-            )
-            rev_state_dict = torch.load(
-                self.reverse_model_path, map_location=self.reverse_model.device
             )
             self.reverse_model.policy.load_state_dict(rev_state_dict)
         elif self.reverse_model_path:
@@ -237,6 +328,10 @@ class RLBridgeNode(Node):
         self.pub_gear = self.create_publisher(GearCommand, "/control/command/gear_cmd", 1)
         self.pub_bev = self.create_publisher(Image, "/rl_bridge/bev_image", 1)
         self.pub_vec = self.create_publisher(Float32MultiArray, "/rl_bridge/state_vector", 1)
+        # Raw policy action (BEFORE gain/clamps): [steer_rate, velocity_intent]
+        # for diagnosing whether the policy itself is under-actuating or
+        # whether bridge-side clamping is.
+        self.pub_raw_action = self.create_publisher(Float32MultiArray, "/rl_bridge/raw_action", 1)
 
         self.create_subscription(Odometry, "/localization/kinematic_state", self._on_odom, 10)
         self.create_subscription(SteeringReport, "/vehicle/status/steering_status", self._on_steering, 10)
@@ -250,6 +345,24 @@ class RLBridgeNode(Node):
             Bool, "/planning/lane_reference/drive_direction", self._on_drive_direction, 1
         )
 
+        # Runtime-tunable params so we can A/B-test without restarting the
+        # launch. Only the two reverse-deployment knobs we expect to iterate
+        # on are honoured here; the others (e.g. world_scale) need a restart.
+        from rcl_interfaces.msg import SetParametersResult
+        def _on_set_params(params):
+            for p in params:
+                if p.name == "bridge_velocity_max_reverse":
+                    self.bridge_v_max_reverse = float(p.value)
+                    self.get_logger().info(f"bridge_velocity_max_reverse -> {self.bridge_v_max_reverse}")
+                elif p.name == "reverse_steer_rate_gain":
+                    self.reverse_steer_rate_gain = float(p.value)
+                    self.get_logger().info(f"reverse_steer_rate_gain -> {self.reverse_steer_rate_gain}")
+                elif p.name == "reverse_steer_rate_ema_alpha":
+                    self.reverse_steer_rate_ema_alpha = float(p.value)
+                    self.get_logger().info(f"reverse_steer_rate_ema_alpha -> {self.reverse_steer_rate_ema_alpha}")
+            return SetParametersResult(successful=True)
+        self.add_on_set_parameters_callback(_on_set_params)
+
         self.create_timer(self._dt, self._on_control_tick)
         self.create_timer(1.0, self._on_gear_tick)
 
@@ -257,6 +370,91 @@ class RLBridgeNode(Node):
             f"RL bridge up — action_space={self.action_space}, rate={self.control_rate_hz} Hz, "
             f"world_scale={self.world_scale}"
         )
+
+    # ------------------------------------------------------------- patches
+    def _patch_variable_speed_envs(self, *, v_min: float, v_max: float) -> None:
+        """Mirror of train_lab_model._patch_variable_speed_action — wraps the
+        Lidar env __init__'s so they end up with self.fixed_speed=False AND
+        a 2-D action space [steer_rate, velocity] with velocity ∈ [v_min,
+        v_max] (forward) or [-v_max, -v_min] (reverse). The adapter constructs
+        the env afterwards and SB3 reads action_space from it; the loaded
+        .pth state_dict then matches by shape."""
+        import numpy as np
+        from gymnasium import spaces
+        import Environments.LineFollowing as lf
+        import Environments.ObstacleAvoidance as oa
+
+        try:
+            from e2erl_utils import config as c
+            steering_deg = float(c.steering_action)
+        except Exception:
+            steering_deg = 25.0
+        max_steer_rate = np.deg2rad(steering_deg)
+
+        orig_forward_init = oa.LidarStateObservationLineFollowingEnv.__init__
+
+        def forward_init(self, render_mode="human", max_episode_steps=1000,
+                         lidar_beams=16, reward_mode: str = "dense"):
+            orig_forward_init(
+                self,
+                render_mode=render_mode,
+                max_episode_steps=max_episode_steps,
+                lidar_beams=lidar_beams,
+                reward_mode=reward_mode,
+            )
+            self.fixed_speed = False
+            self.action_space = spaces.Box(
+                low=np.array([-max_steer_rate, v_min], dtype=np.float32),
+                high=np.array([max_steer_rate, v_max], dtype=np.float32),
+                dtype=np.float32,
+            )
+
+        oa.LidarStateObservationLineFollowingEnv.__init__ = forward_init
+        # Reverse env is patched ONLY when we actually load a variable-
+        # speed reverse checkpoint — see _patch_reverse_env_variable_speed
+        # below. Per-checkpoint detection (via state_dict shape) lets the
+        # bridge load either a legacy 1-D reverse model OR a v15+ 2-D
+        # reverse model without manual config flipping.
+
+    def _patch_reverse_env_variable_speed(self, *, v_min: float, v_max: float) -> None:
+        """Patch ReverseLidarStateObservationLineFollowingEnv.__init__ so
+        its action_space matches a variable-speed (2-D) reverse policy.
+        Called ONLY when the loaded reverse .pth has actor.mu out-dim = 2.
+
+        Velocity bounds are flipped negative for the reverse convention
+        ([-v_max, -v_min] for the velocity dimension), matching how the
+        reverse policy was trained (e2e_rl reverse envs use ẋ < 0)."""
+        import numpy as np
+        from gymnasium import spaces
+        import Environments.LineFollowing as lf
+
+        try:
+            from e2erl_utils import config as c
+            steering_deg = float(c.steering_action)
+        except Exception:
+            steering_deg = 25.0
+        max_steer_rate = np.deg2rad(steering_deg)
+
+        orig_reverse_init = lf.ReverseLidarStateObservationLineFollowingEnv.__init__
+
+        def reverse_init(self, render_mode="human", max_episode_steps=1000,
+                         lidar_beams=16, reward_mode: str = "dense",
+                         fixed_speed: bool = True):  # noqa: ARG001 — forced
+            orig_reverse_init(
+                self,
+                render_mode=render_mode,
+                max_episode_steps=max_episode_steps,
+                lidar_beams=lidar_beams,
+                reward_mode=reward_mode,
+                fixed_speed=False,
+            )
+            self.action_space = spaces.Box(
+                low=np.array([-max_steer_rate, -v_max], dtype=np.float32),
+                high=np.array([max_steer_rate, -v_min], dtype=np.float32),
+                dtype=np.float32,
+            )
+
+        lf.ReverseLidarStateObservationLineFollowingEnv.__init__ = reverse_init
 
     # --------------------------------------------------------------- inputs
     def _on_odom(self, msg: Odometry):
@@ -298,9 +496,15 @@ class RLBridgeNode(Node):
             return
 
         x, y, yaw, xd = self._ego
-        # Seed target steering with the measured tire angle on first tick so we
-        # don't slam the actuator on startup.
-        if abs(self._target_steering) < 1e-6 and abs(self._steering) > 1e-6:
+        # Seed target steering with the measured tire angle when we drift far
+        # from the actual actuator state. Catches two cases:
+        #   1. First tick after startup (target=0, measured may be nonzero).
+        #   2. Sim resets (e.g. user re-publishes /initialpose mid-run for
+        #      A/B testing). The sim resets the vehicle's tire angle to 0,
+        #      so a large gap means the bridge is integrating stale state.
+        # Threshold 0.15 rad (~8.6°) — well above the per-tick steering
+        # rate cap so it won't trip during normal operation.
+        if abs(self._target_steering - self._steering) > 0.15:
             self._target_steering = self._steering
 
         # Pick policy + adapter frame for this tick. Only honour drive_reverse
@@ -321,16 +525,45 @@ class RLBridgeNode(Node):
         action, _ = active_model.predict(obs, deterministic=True)
         action = np.asarray(action).flatten()
 
+        raw_msg = Float32MultiArray()
+        raw_msg.data = [float(v) for v in action]
+        self.pub_raw_action.publish(raw_msg)
+
         steering_rate = float(action[0])
         if self.action_space == "variable_speed" and action.size >= 2:
-            # variable_speed policies emit the signed longitudinal velocity
-            # directly; reverse-trained policies already produce vx<0, so we
-            # trust the action.
             velocity_cmd = float(action[1])
         else:
-            # fixed_speed policies don't emit a velocity; we apply the
-            # configured magnitude with a sign flip in reverse mode.
             velocity_cmd = -self.default_velocity if is_reverse else self.default_velocity
+
+        # Proportional kinematic scaling for reverse: the policy was trained
+        # with the vehicle moving at v∈[-3, -0.5] m/s and outputs steer rates
+        # calibrated for those speeds. The bridge clamps velocity to a much
+        # lower value for the lab robot (~0.4 m/s), but the policy doesn't
+        # see velocity in its observation, so it still commands rates as if
+        # moving at -3 m/s. Result: tire angle accumulates over the same
+        # number of seconds but the truck travels less distance, producing
+        # a far tighter geometric turn than the policy intended. Scaling
+        # steer_rate by |v_clamped|/|v_policy_intent| preserves the
+        # steer-per-meter relationship.
+        if is_reverse and abs(velocity_cmd) > 1e-3:
+            v_intent = abs(velocity_cmd)  # before clamp
+            v_clamped = min(v_intent, self.bridge_v_max_reverse)
+            v_clamped = max(v_clamped, self.bridge_v_min)
+            scale = v_clamped / v_intent
+            steering_rate *= scale
+            self._last_kine_scale = scale  # for debug
+        # EMA smoothing (kills 5 Hz bang-bang oscillation from the policy)
+        if is_reverse:
+            if self.reverse_steer_rate_ema_alpha < 1.0:
+                a = self.reverse_steer_rate_ema_alpha
+                self._reverse_steer_rate_ema = (
+                    a * steering_rate + (1.0 - a) * self._reverse_steer_rate_ema
+                )
+                steering_rate = self._reverse_steer_rate_ema
+            if self.reverse_steer_rate_gain != 1.0:
+                steering_rate *= self.reverse_steer_rate_gain
+        else:
+            self._reverse_steer_rate_ema = 0.0
 
         if self._drive_enabled:
             self._target_steering = float(
@@ -347,6 +580,19 @@ class RLBridgeNode(Node):
         # divide by world_scale so the small vehicle moves at the
         # physically-corresponding speed.
         velocity_cmd = velocity_cmd / self.world_scale
+
+        # Deployment-side magnitude clamp: the variable-speed policy was
+        # trained against an action range of up to 3 m/s, but the AgileX
+        # rig shouldn't run that fast in the MVSL space. Preserve the sign
+        # (forward / reverse direction) while clamping the magnitude into
+        # [bridge_v_min, bridge_v_max]. We never clamp through zero — if
+        # the policy *would* command 0 / drive_disabled, that's set above
+        # (velocity_cmd = 0.0 in the else branch) and skipped here.
+        if self._drive_enabled and abs(velocity_cmd) > 0.0:
+            sign = 1.0 if velocity_cmd >= 0.0 else -1.0
+            v_max_effective = self.bridge_v_max_reverse if is_reverse else self.bridge_v_max
+            mag = max(self.bridge_v_min, min(abs(velocity_cmd), v_max_effective))
+            velocity_cmd = sign * mag
 
         # The autoware DELAY_STEER_ACC_GEARED* sim vehicle models (and the real
         # vehicle's underlying acc-tracking loop) read .longitudinal.acceleration

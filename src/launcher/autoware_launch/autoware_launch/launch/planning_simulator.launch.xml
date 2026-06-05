@@ -12,10 +12,10 @@
 
   <!-- electrans_rl_bridge knobs. Defaults match
        tier4_control_component.launch.xml / electrans_rl_bridge.launch.xml. -->
-  <arg name="td3_model_path" default="/home/ben/Ben/Thesis/e2e_rl/models/forward/lidar_24/multiplicative/best_model.policy.pth"/>
-  <arg name="td3_reverse_model_path" default="/home/ben/Ben/Thesis/e2e_rl/models/reverse/lidar_24/multiplicative/best_model.policy.pth"/>
+  <arg name="td3_model_path" default="/home/ben/Ben/Thesis/Electrans_project/lab_models_v15/models/forward/lidar_24/multiplicative/best_model.policy.pth"/>
+  <arg name="td3_reverse_model_path" default="/home/ben/Ben/Thesis/Electrans_project/lab_models_v16/models/reverse/lidar_24/multiplicative/best_model.policy.pth"/>
   <arg name="e2e_rl_path" default="/home/ben/Ben/Thesis/e2e_rl"/>
-  <arg name="action_space" default="fixed_speed"/>
+  <arg name="action_space" default="variable_speed"/>
   <arg name="control_rate_hz" default="10.0"/>
   <arg name="default_velocity_mps" default="0.6"/>
   <arg name="forward_horizon_m" default="50.0"/>

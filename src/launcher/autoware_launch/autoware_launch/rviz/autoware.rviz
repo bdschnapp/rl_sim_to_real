@@ -2741,11 +2741,25 @@ Visualization Manager:
                 Debug:
                   Control: true
                   Localization:
-                    "": true
+                    EKFPoseHistory: true
+                    NDT pointclouds: true
+                    NDTLoadedPCDMap: true
+                    NDTPoseHistory: true
                     Value: true
                   Map: true
                   Perception:
-                    "": true
+                    CameraLidarFusion(purple): true
+                    Centerpoint(red1): true
+                    CenterpointROIFusion(red2): true
+                    CenterpointValidator(red3): true
+                    Detection(yellow): true
+                    DetectionByTracker(orange): true
+                    PointPainting(light_green1): true
+                    PointPaintingROIFusion(light_green2): true
+                    PointPaintingValidator(light_green3): true
+                    Prediction(light_blue): true
+                    RadarFarObjects(white): true
+                    Tracking(green): true
                     Value: true
                   Planning:
                     Debug:
@@ -2830,10 +2844,7 @@ Visualization Manager:
                     Value: true
                   Value: true
                   Vehicle:
-                    Debug: true
-                    Info:
-                      AccelerationMeter: true
-                      Value: true
+                    "": true
                     Value: true
                 Localization:
                   EKF:
@@ -4736,7 +4747,7 @@ Visualization Manager:
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Scale: 93.98245239257812
+      Scale: 59.56597137451172
       Target Frame: viewer
       Value: BirdEyeView (tier4_camera_view_rviz_plugin)
       X: 1.8374903202056885
