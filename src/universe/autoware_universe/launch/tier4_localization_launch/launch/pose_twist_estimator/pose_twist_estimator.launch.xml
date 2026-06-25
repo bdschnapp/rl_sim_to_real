@@ -48,7 +48,13 @@
     <include file="$(find-pkg-share autoware_pose_initializer)/launch/pose_initializer.launch.xml">
       <arg name="user_defined_initial_pose/enable" value="$(var user_defined_initial_pose/enable)"/>
       <arg name="user_defined_initial_pose/pose" value="$(var user_defined_initial_pose/pose)"/>
-      <arg name="ndt_enabled" value="true"/>
+      <!-- Disabled: the autoware lidar preprocessing pipeline isn't producing
+           /localization/util/downsample/pointcloud on this robot, so NDT scan
+           matching can't align and the pose_initializer service hangs forever
+           waiting on ndt_align_srv. The RL bridge is centerline-following, not
+           map-relative-via-lidar, so we don't need NDT — just trust the
+           user-provided pose. -->
+      <arg name="ndt_enabled" value="false"/>
       <arg name="yabloc_enabled" value="false"/>
       <arg name="gnss_enabled" value="$(var gnss_enabled)"/>
       <arg name="ekf_enabled" value="true"/>

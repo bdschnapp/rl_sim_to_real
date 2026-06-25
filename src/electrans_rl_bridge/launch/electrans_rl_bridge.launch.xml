@@ -2,19 +2,21 @@
 <launch>
   <!-- Where the e2e_rl source tree is mounted/installed. The two nodes add this
        to sys.path so they can import Environments / Models / e2erl_utils. -->
-  <arg name="e2e_rl_path" default="/home/ben/Ben/Thesis/e2e_rl"/>
-  <arg name="td3_model_path" default="/home/ben/Ben/Thesis/Electrans_project/lab_models_v15/models/forward/lidar_24/multiplicative/best_model.policy.pth"/>
-  <arg name="td3_reverse_model_path" default="/home/ben/Ben/Thesis/Electrans_project/lab_models_v16/models/reverse/lidar_24/multiplicative/best_model.policy.pth"/>
+  <arg name="e2e_rl_path" default="/home/electrans_robot/Ben/e2e_rl"/>
+  <arg name="td3_model_path" default="$(env HOME)/Ben/rl_sim_to_real/lab_models_v15/models/forward/lidar_24/multiplicative/best_model.policy.pth"/>
+  <arg name="td3_reverse_model_path" default="$(env HOME)/Ben/rl_sim_to_real/lab_models_v18/models/reverse/lidar_24/multiplicative/best_model.policy.pth"/>
 
   <!-- Lanelet2 map: must match what autoware_map_loader was given. The MVSL lab
        map is a Local-projection map (lat="" lon="" + local_x/local_y tags);
        lane_reference_node handles that internally. -->
-  <arg name="map_path" default="$(env HOME)/Ben/Electrans/autoware_map/mvsl"/>
+  <arg name="map_path" default="$(env HOME)/autoware_map/mvsl"/>
   <arg name="lanelet2_map_file" default="lanelet2_map.osm"/>
 
   <!-- Bridge knobs -->
   <arg name="action_space" default="variable_speed"/>            <!-- fixed_speed | variable_speed -->
   <arg name="control_rate_hz" default="10.0"/>
+  <arg name="bev_publish_rate_hz" default="4.0"/>               <!-- debug BEV render rate; 0 disables -->
+
   <arg name="default_velocity_mps" default="0.6"/>
   <arg name="forward_horizon_m" default="50.0"/>
   <arg name="centerline_resolution_m" default="0.5"/>
@@ -33,7 +35,12 @@
        so the BEV shows up in the main Autoware RViz without a second
        rviz_default_plugins/Image display. Set false when traffic-light
        recognition is also publishing onto that topic (real-robot setups). -->
-  <arg name="relay_bev_to_rviz_panel" default="true"/>
+  <arg name="relay_bev_to_rviz_panel" default="false"/>
+
+  <!-- Bridges RViz /initialpose → autoware pose-initializer service. Needed
+       because default_adapi_universe (which used to do this) was deleted with
+       the lifecycle stack. -->
+  <node pkg="electrans_rl_bridge" exec="initialpose_shim" name="initialpose_shim" output="screen"/>
 
   <node pkg="electrans_rl_bridge" exec="lane_reference_node" name="lane_reference_node" output="screen">
     <param name="map_path" value="$(var map_path)"/>
@@ -48,6 +55,7 @@
     <param name="td3_reverse_model_path" value="$(var td3_reverse_model_path)"/>
     <param name="action_space" value="$(var action_space)"/>
     <param name="control_rate_hz" value="$(var control_rate_hz)"/>
+    <param name="bev_publish_rate_hz" value="$(var bev_publish_rate_hz)"/>
     <param name="default_velocity_mps" value="$(var default_velocity_mps)"/>
     <param name="world_scale" value="$(var world_scale)"/>
   </node>

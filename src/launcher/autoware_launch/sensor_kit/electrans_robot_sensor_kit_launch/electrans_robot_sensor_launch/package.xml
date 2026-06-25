@@ -9,6 +9,8 @@
 
   <buildtool_depend>ament_cmake_auto</buildtool_depend>
 
+  <exec_depend>autoware_velodyne_monitor</exec_depend>
+  <exec_depend>lidar_hitch_angle</exec_depend>
   <exec_depend>nebula_sensor_driver</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>

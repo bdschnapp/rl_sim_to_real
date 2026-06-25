@@ -133,17 +133,14 @@ def _patch_path_generator(e2e_rl_path: Path) -> None:
         self.xx = np.arange(int(x0), int(x_end), 1)
         n_pts = len(self.xx)
 
-        # v16 mode mix: bump "straight" weight to 0.15 (was 0.05) so the
-        # policy gets more time on the "clean aligned" reset distribution
-        # — addresses the v15 deployment bug where the policy rails outputs
-        # on a near-zero state. Add new "lab_seam" mode: a single very
-        # sharp tanh bend mid-path, mimicking the MVSL lanelet 7→402→381
-        # corner topology (mostly straight, one ~90° seam, mostly straight).
-        # Sized at ~25% to give the policy direct exposure to sharp
-        # lanelet-seam geometry without dominating the distribution.
+        # v18 mode mix: reclaims v15oos-level "straight" exposure (18%)
+        # to fix v17's straight-driving regression, while keeping
+        # "lab_corner" at 25% so the policy still gets heavy exposure
+        # to the MVSL ~90° corner geometry. Other modes trimmed to
+        # make the budget add up.
         mode = self.np_random.choice(
-            ["straight", "gentle", "sharp", "winding", "lab_seam"],
-            p=[0.15, 0.15, 0.20, 0.25, 0.25],
+            ["straight", "gentle", "sharp", "winding", "lab_seam", "lab_corner"],
+            p=[0.18, 0.12, 0.15, 0.18, 0.12, 0.25],
         )
         # Recorded so the velocity-randomisation reset patch (see
         # _patch_velocity_randomisation) can pick a speed appropriate for
@@ -210,6 +207,37 @@ def _patch_path_generator(e2e_rl_path: Path) -> None:
             dy = sign * float(self.np_random.uniform(1.5, 3.0))
             ramp = (np.tanh((self.xx - bend_x) / width) + 1.0) * 0.5
             y_local = dy * ramp
+
+        elif mode == "lab_corner":
+            # MVSL ~90° corner replica, S-curve form: two sharp opposing
+            # tanh bends with a LONG straight section between them. The
+            # policy must drive into the first 90° turn, stabilise back
+            # on straight, then handle a second 90° turn in the OPPOSITE
+            # direction. Models the real MVSL trajectory.
+            #
+            # v18 tweaks vs v17:
+            #   - Inter-bend straight is now 100-115 m (was 50-90 m), so
+            #     the policy has substantial time to settle between turns
+            #     before the next curvature event. Pre-bend straight is
+            #     10-15 m (was 15-30) since the truck spawns at 10% along
+            #     and we want the corner reasonably early.
+            #   - Wider dy/width ranges (dy 2-6 m, width 0.3-0.8 m)
+            #     diversify the corner sharpness so the policy interpolates
+            #     between mild and very sharp 90°s instead of seeing only
+            #     the hardest. Peak tangent angle atan(dy/(2w)) now spans
+            #     ~50-85° per bend.
+            sign = 1.0 if self.np_random.random() < 0.5 else -1.0
+            bend1_x = float(self.np_random.uniform(x0 + 10.0, x0 + 15.0))
+            width1 = float(self.np_random.uniform(0.3, 0.8))
+            dy1 = sign * float(self.np_random.uniform(2.0, 6.0))
+
+            bend2_x = float(self.np_random.uniform(bend1_x + 100.0, x_end - 10.0))
+            width2 = float(self.np_random.uniform(0.3, 0.8))
+            dy2 = -dy1  # opposite-direction equal-magnitude → net y ≈ 0
+
+            ramp1 = (np.tanh((self.xx - bend1_x) / width1) + 1.0) * 0.5
+            ramp2 = (np.tanh((self.xx - bend2_x) / width2) + 1.0) * 0.5
+            y_local = dy1 * ramp1 + dy2 * ramp2
 
         else:  # winding — chained alternating-sign sustained turns
             # Replaces single-bend sustained_turn. Chains N=3 or 5 bends
@@ -282,10 +310,15 @@ def _patch_path_generator(e2e_rl_path: Path) -> None:
 # exactly the regime the bridge uses at deployment (~0.6 m/s on the
 # MVSL corner). Straight + gentle stay in the original training range.
 _VELOCITY_BOUNDS_BY_PATH_KIND = {
-    "straight": (1.0, 5.0),
-    "gentle":   (1.0, 5.0),
-    "sharp":    (0.5, 2.0),
-    "winding":  (0.5, 2.0),
+    "straight":   (1.0, 5.0),
+    "gentle":     (1.0, 5.0),
+    "sharp":      (0.5, 2.0),
+    "winding":    (0.5, 2.0),
+    "lab_seam":   (0.5, 2.0),
+    # lab_corner runs even slower — the ~90° bend demands tight tracking
+    # at MVSL deployment speeds (~0.6 m/s) where the corner is widest in
+    # the policy's distribution.
+    "lab_corner": (0.4, 1.5),
 }
 
 

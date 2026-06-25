@@ -23,6 +23,7 @@ from launch.conditions import IfCondition
 from launch.conditions import UnlessCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import ComposableNodeContainer
+from launch_ros.actions import Node
 from launch_ros.descriptions import ComposableNode
 from launch_ros.parameter_descriptions import ParameterFile
 import yaml
@@ -96,6 +97,14 @@ def launch_setup(context, *args, **kwargs):
     )
     ring_outlier_filter_node_param = ParameterFile(
         param_file=LaunchConfiguration("ring_outlier_filter_node_param_path").perform(context),
+        allow_substs=True,
+    )
+    trailer_self_filter_node_param = ParameterFile(
+        param_file=LaunchConfiguration("trailer_self_filter_param_path").perform(context),
+        allow_substs=True,
+    )
+    hitch_angle_estimator_node_param = ParameterFile(
+        param_file=LaunchConfiguration("hitch_angle_estimator_param_path").perform(context),
         allow_substs=True,
     )
 
@@ -207,7 +216,7 @@ def launch_setup(context, *args, **kwargs):
             remappings=[
                 ("~/input/twist", "/sensing/vehicle_velocity_converter/twist_with_covariance"),
                 ("~/input/imu", "/sensing/imu/imu_data"),
-                ("~/input/pointcloud", "mirror_cropped/pointcloud_ex"),
+                ("~/input/pointcloud", "trailer_cropped/pointcloud_ex"),
                 ("~/output/pointcloud", "rectified/pointcloud_ex"),
             ],
             parameters=[distortion_corrector_node_param],
@@ -244,7 +253,44 @@ def launch_setup(context, *args, **kwargs):
         output="both",
     )
 
-    return [container]
+    # NOTE: namespace= removed. With namespace="pointcloud_preprocessor" the
+    # relative remap targets resolved to .../pointcloud_preprocessor/mirror_cropped/...
+    # but crop_box_filter_mirror actually publishes to .../mirror_cropped/...
+    # (one level up). Same problem on the output side -- distortion_corrector
+    # subscribes to .../trailer_cropped/... without the extra namespace.
+    trailer_self_filter_node = Node(
+        package="lidar_hitch_angle",
+        executable="trailer_self_filter",
+        name="trailer_self_filter",
+        output="screen",
+        parameters=[
+            trailer_self_filter_node_param,
+            {"enabled": LaunchConfiguration("use_trailer_self_filter")},
+        ],
+        remappings=[
+            ("~/input/pointcloud", "mirror_cropped/pointcloud_ex"),
+            ("~/output/pointcloud", "trailer_cropped/pointcloud_ex"),
+            ("~/input/trailer_state", "/vehicle/trailer_state"),
+            ("~/input/is_trailer_connected", "/vehicle/is_trailer_connected"),
+        ],
+    )
+
+    hitch_angle_estimator_node = Node(
+        package="lidar_hitch_angle",
+        executable="hitchangle",
+        name="hitch_angle_estimator",
+        output="screen",
+        parameters=[hitch_angle_estimator_node_param],
+        remappings=[
+            # The estimator's hard-coded subscription is /rslidar_points; our
+            # driver publishes /rslidar_points_front. ROI parameters are tuned
+            # in the lidar frame so we use the raw driver output here.
+            ("/rslidar_points", "/rslidar_points_front"),
+        ],
+        condition=IfCondition(LaunchConfiguration("use_hitch_angle_estimator")),
+    )
+
+    return [container, trailer_self_filter_node, hitch_angle_estimator_node]
 
 
 def generate_launch_description():
@@ -257,6 +303,7 @@ def generate_launch_description():
         )
 
     common_sensor_share_dir = get_package_share_directory("common_sensor_launch")
+    lidar_hitch_angle_share_dir = get_package_share_directory("lidar_hitch_angle")
 
     add_launch_arg("sensor_model", description="sensor model name")
     add_launch_arg("config_file", "", description="sensor configuration file")
@@ -303,6 +350,30 @@ def generate_launch_description():
             "ring_outlier_filter_node.param.yaml",
         ),
         description="path to parameter file of ring outlier filter node",
+    )
+    add_launch_arg("use_trailer_self_filter", "True", "remove trailer points using TrailerState")
+    add_launch_arg(
+        "trailer_self_filter_param_path",
+        os.path.join(
+            lidar_hitch_angle_share_dir,
+            "config",
+            "trailer_self_filter.param.yaml",
+        ),
+        description="path to parameter file of trailer self filter node",
+    )
+    add_launch_arg(
+        "use_hitch_angle_estimator",
+        "True",
+        "estimate hitch angle from lidar and publish /vehicle/trailer_state",
+    )
+    add_launch_arg(
+        "hitch_angle_estimator_param_path",
+        os.path.join(
+            lidar_hitch_angle_share_dir,
+            "config",
+            "lidar_hitch_angle.param.yaml",
+        ),
+        description="path to parameter file of hitch angle estimator node",
     )
     add_launch_arg("udp_only", "False", "use UDP only")
     add_launch_arg("diag_span", "1000", "diagnostics span in milliseconds")

@@ -1,4 +1,4 @@
-set (PACKAGE_VERSION "1.5.17")
+set (PACKAGE_VERSION "1.5.18")
 message(=============================================================)
 message("-- rs_driver Version : v${PACKAGE_VERSION}")
 message(=============================================================)

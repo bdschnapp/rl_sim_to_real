@@ -1,0 +1,26 @@
+/**:
+  ros__parameters:
+    enabled: true
+
+    # The pointcloud entering this filter has already been transformed by the
+    # self/mirror crop boxes into base_link.
+    expected_frame: base_link
+
+    trailer_state_timeout_s: 1.0
+
+    # Require /vehicle/is_trailer_connected in addition to a fresh
+    # /vehicle/trailer_state before removing trailer points.
+    require_connected_topic: true
+    connected_timeout_s: 1.0
+
+    # Geometry prior matched to
+    # autoware_truck_trailer_freespace_planner/config/truck_trailer_freespace_planner.param.yaml.
+    tractor_base2hinge: 0.20
+    trailer_front_oh: 0.39
+    trailer_wheel_base: 2.75
+    trailer_rear_oh: 0.51
+    trailer_width: 0.62
+
+    trailer_min_z: -0.30
+    trailer_max_z: 1.30
+    filter_margin_m: 0.05

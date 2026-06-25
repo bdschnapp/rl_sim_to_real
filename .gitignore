@@ -35,3 +35,20 @@ CLAUDE.md
 # VCS
 *.patch
 src/.codex
+
+# --- Robot data artifacts: keep the repo reproducible-to-run but lean ---
+# ROS bag recordings (not needed to reproduce robot state)
+bags/
+# Experimental / non-deployed model runs. Deployed policies kept in git are:
+#   forward = lab_models_v15, reverse = lab_models_v16 / lab_models_v18
+lab_models_v15oos/
+lab_models_v17/
+lab_models_v19/
+lab_models_v20/
+# Inside kept model dirs, exclude training intermediates — keep only the
+# deployed subtree (models/.../best_model.policy.pth + .policy_kwargs.pkl + logs).
+lab_models_*/phase_*/
+lab_models_*/.train_logs/
+
+# Backup files
+*.bak

@@ -12,14 +12,14 @@
     exec="ros2can_bridge"
     name="ros2can_bridge"
     args="$(var can_interface)"
-    output="screen"/>
+    output="log"/>
 
   <node
     if="$(var launch_canbridge)"
     pkg="canbridge"
     exec="canbridge"
     name="controller_canbridge"
-    output="screen">
+    output="log">
     <param name="can_interface" value="$(var can_interface)"/>
   </node>
 
@@ -27,7 +27,7 @@
     pkg="electrans_robot_vehicle_launch"
     exec="fixed_gear_report_publisher"
     name="fixed_gear_report_publisher"
-    output="screen">
+    output="log">
     <param name="publish_rate_hz" value="$(var fixed_gear_publish_rate_hz)"/>
   </node>
 </launch>

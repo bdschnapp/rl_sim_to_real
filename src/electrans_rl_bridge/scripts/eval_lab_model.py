@@ -35,7 +35,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_E2E_RL = Path("/home/ben/Ben/Thesis/e2e_rl")
-DEFAULT_LAB_MODELS = REPO_ROOT / "lab_models_v16" / "models"
+DEFAULT_LAB_MODELS = REPO_ROOT / "lab_models_v18" / "models"
 
 
 def _apply_variable_speed(
@@ -179,6 +179,26 @@ def _apply_path_override(e2e_rl_path: Path, path_type: str) -> None:
                 ramp = (np.tanh((self.xx - bend_x) / width) + 1.0) * 0.5
                 y += dy * ramp
             return y
+        if kind == "lab_corner":
+            # S-curve: two opposing 90° bends with a LONG straight
+            # between them (≥100 m). Mirrors train_lab_model v18 setup.
+            sign = 1.0 if self.np_random.random() < 0.5 else -1.0
+            bend1_x = float(self.np_random.uniform(x0 + 10.0, x0 + 15.0))
+            width1 = float(self.np_random.uniform(0.3, 0.8))
+            dy1 = sign * float(self.np_random.uniform(2.0, 6.0))
+            bend2_x = float(self.np_random.uniform(bend1_x + 100.0, x_end - 10.0))
+            width2 = float(self.np_random.uniform(0.3, 0.8))
+            dy2 = -dy1
+            ramp1 = (np.tanh((self.xx - bend1_x) / width1) + 1.0) * 0.5
+            ramp2 = (np.tanh((self.xx - bend2_x) / width2) + 1.0) * 0.5
+            return dy1 * ramp1 + dy2 * ramp2
+        if kind == "lab_seam":
+            bend_x = float(self.np_random.uniform(x0 + 6.0, x_end - 4.0))
+            width = float(self.np_random.uniform(0.4, 0.7))
+            sign = 1.0 if self.np_random.random() < 0.5 else -1.0
+            dy = sign * float(self.np_random.uniform(1.5, 3.0))
+            ramp = (np.tanh((self.xx - bend_x) / width) + 1.0) * 0.5
+            return dy * ramp
         if kind in ("winding", "90", "sustained_turn"):
             # Chained alternating-sign sustained turns — matches the v15+
             # training "winding" mode. Deterministic params for eval:
@@ -326,12 +346,15 @@ def main() -> None:
     )
     parser.add_argument(
         "--path-type", dest="path_type", default="mix",
-        choices=["mix", "straight", "gentle", "sharp", "90", "sustained_turn", "winding"],
+        choices=["mix", "straight", "gentle", "sharp", "90", "sustained_turn",
+                 "winding", "lab_seam", "lab_corner"],
         help=(
             "Force every episode to spawn a specific path geometry. "
-            "'mix' (default) matches training. '90' is a single mid-path "
-            "tanh ramp (~73° tangent jump) — closest analogue to the MVSL "
-            "lab corner. See _apply_path_override docstring for details."
+            "'mix' (default) matches training. 'lab_corner' is the sharp "
+            "single-bend ramp matching the v16 training-time MVSL corner "
+            "replica (width 0.3-0.6 m, dy 3-6 m, tangent peak 70-85°). "
+            "'lab_seam' is the milder v15 variant. See _apply_path_override "
+            "docstring for details."
         ),
     )
     parser.add_argument(
@@ -439,7 +462,7 @@ def main() -> None:
     # run_model writes its print() output relative to CWD; nothing important
     # lands on disk for a render-only run, but chdir to lab_models so any
     # ./models/... lookup inside e2e_rl resolves cleanly.
-    os.chdir(REPO_ROOT / "lab_models_v16")
+    os.chdir(REPO_ROOT / "lab_models_v18")
 
     print(f"[eval_lab_model] model = {model_path}")
     print(f"[eval_lab_model] e2e_rl = {e2e_rl_path}")

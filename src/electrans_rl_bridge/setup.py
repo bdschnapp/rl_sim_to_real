@@ -21,6 +21,7 @@ setup(
         "console_scripts": [
             "lane_reference_node = electrans_rl_bridge.lane_reference_node:main",
             "rl_bridge_node = electrans_rl_bridge.rl_bridge_node:main",
+            "initialpose_shim = electrans_rl_bridge.initialpose_shim:main",
         ],
     },
 )

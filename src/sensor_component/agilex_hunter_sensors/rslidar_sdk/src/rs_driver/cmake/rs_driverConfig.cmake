@@ -19,8 +19,8 @@ if(${ENABLE_TRANSFORM})
   add_definitions("-DENABLE_TRANSFORM")
 endif(${ENABLE_TRANSFORM})
 
-set(rs_driver_INCLUDE_DIRS "/mnt/5117d90f-eb65-44b3-abb2-88b525dc9459/electrans/electrans_official/Electrans_project/src/sensor_component/agilex_hunter_sensors/rslidar_sdk/src/rs_driver/src;/usr/local/rslidar_sdk/include")
-set(RS_DRIVER_INCLUDE_DIRS "/mnt/5117d90f-eb65-44b3-abb2-88b525dc9459/electrans/electrans_official/Electrans_project/src/sensor_component/agilex_hunter_sensors/rslidar_sdk/src/rs_driver/src;/usr/local/rslidar_sdk/include")
+set(rs_driver_INCLUDE_DIRS "/home/electrans_robot/lidar_ws/src/rslidar_sdk/src/rs_driver/src;/usr/local/rslidar_sdk/include")
+set(RS_DRIVER_INCLUDE_DIRS "/home/electrans_robot/lidar_ws/src/rslidar_sdk/src/rs_driver/src;/usr/local/rslidar_sdk/include")
 
 set(rs_driver_LIBRARIES "pthread;pcap")
 set(RS_DRIVER_LIBRARIES "pthread;pcap")

@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', Arial, sans-serif;
+    background: #0d1117;
+    color: #e6edf3;
+    width: 1280px; height: 720px;
+    display: flex; flex-direction: column;
+    padding: 48px 56px 36px;
+  }
+
+  h1 {
+    font-size: 28px; font-weight: 700;
+    color: #58a6ff;
+    border-bottom: 2px solid #30363d;
+    padding-bottom: 14px; margin-bottom: 30px;
+    letter-spacing: 0.5px;
+  }
+
+  .cols { display: flex; gap: 32px; flex: 1; }
+
+  .col {
+    flex: 1;
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 10px;
+    padding: 28px 30px;
+    display: flex; flex-direction: column;
+  }
+
+  .col-title {
+    font-size: 17px; font-weight: 700;
+    margin-bottom: 18px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #30363d;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .badge {
+    font-size: 11px; font-weight: 600;
+    padding: 2px 9px; border-radius: 20px;
+  }
+  .old  { color: #f0883e; border-color: #f0883e; }
+  .badgeold  { background:#2d1b00; color:#f0883e; border:1px solid #f0883e; }
+  .new  { color: #3fb950; border-color: #3fb950; }
+  .badgenew  { background:#0d2b13; color:#3fb950; border:1px solid #3fb950; }
+
+  .diagram {
+    background: #0d1117;
+    border: 1px solid #21262d;
+    border-radius: 6px;
+    padding: 14px 16px;
+    font-family: monospace;
+    font-size: 13px;
+    color: #8b949e;
+    line-height: 1.6;
+    margin-bottom: 18px;
+    white-space: pre;
+  }
+  .diagram .hi  { color: #58a6ff; }
+  .diagram .grn { color: #3fb950; }
+  .diagram .org { color: #f0883e; }
+
+  ul { list-style: none; flex: 1; }
+  ul li {
+    font-size: 14.5px; line-height: 1.5;
+    padding: 5px 0 5px 20px;
+    border-bottom: 1px dashed #21262d;
+    position: relative;
+    color: #c9d1d9;
+  }
+  ul li:last-child { border-bottom: none; }
+  ul li::before { content: "▸"; position: absolute; left: 0; color: #8b949e; }
+
+  .pro  { color: #3fb950; font-weight: 600; }
+  .con  { color: #f85149; font-weight: 600; }
+  .note { color: #d29922; font-weight: 600; }
+
+  .footer {
+    margin-top: 22px;
+    font-size: 12px; color: #484f58;
+    text-align: right;
+  }
+</style>
+</head>
+<body>
+
+<h1>LiDAR Hitch Angle Estimation — Method Comparison</h1>
+
+<div class="cols">
+
+  <!-- ═══ METHOD 1 ═══ -->
+  <div class="col">
+    <div class="col-title old">
+      Method 1 — PCA Face Normal
+      <span class="badge badgeold">lidar_hitch_angle.py</span>
+    </div>
+
+    <div class="diagram">Trailer front face (viewed from above):
+
+  LiDAR ●                    ┌──────────┐
+    ────── <span class="hi">normal ←──</span> │  TRAILER │
+                             └──────────┘
+  <span class="org">PCA → eigenvec of min eigenvalue</span>
+  <span class="hi">trailer_dir = normal × Ẑ</span>
+  angle = atan2(det, dot) vs truck +X</div>
+
+    <ul>
+      <li><span class="note">How:</span> PCA on ROI points → smallest eigenvector = face normal → cross with Ẑ → heading angle</li>
+      <li><span class="pro">Pro:</span> Simple, fast, works well when <em>only the front face</em> is visible</li>
+      <li><span class="con">Con:</span> At ~20–40° both front + side faces are visible; PCA normal becomes ambiguous and noisy</li>
+      <li><span class="con">Con:</span> Side-face branch is commented out → breaks beyond ±40°</li>
+      <li><span class="con">Con:</span> Binary ROI shift (±0.2 m) does not track trailer at large angles</li>
+      <li><span class="con">Con:</span> No temporal filtering → raw output is noisy frame-to-frame</li>
+    </ul>
+  </div>
+
+  <!-- ═══ METHOD 2 ═══ -->
+  <div class="col">
+    <div class="col-title new">
+      Method 2 — L-Shape Rectangle Fitting
+      <span class="badge badgenew">hitch_filter_vis.py</span>
+    </div>
+
+    <div class="diagram">L-shape visibility (moderate hitch angle):
+
+  LiDAR ●     <span class="grn">┌── front face ──┐</span>
+              <span class="grn">│</span>                <span class="grn">│ ← side face</span>
+  Score(θ) = Σ min(d<span class="hi">x</span>, d<span class="hi">y</span>)²  minimised
+  → rectangle aligns with <span class="grn">both faces</span> at once</div>
+
+    <ul>
+      <li><span class="note">How:</span> Search θ ∈ [0°,180°); fit bounding box; minimise Σ min(dx,dy)² — closeness criterion (Zhang 2017)</li>
+      <li><span class="pro">Pro:</span> Handles front-only, L-shape, and side-only point patterns in one unified pass</li>
+      <li><span class="pro">Pro:</span> Trig-based dynamic ROI tracking — shifts proportional to sin(θ)</li>
+      <li><span class="pro">Pro:</span> Moving-average (10-sample) + Kalman filter (const. angular velocity) smooth the output</li>
+      <li><span class="pro">Pro:</span> Kalman innovation gating (3σ) rejects outlier frames before they corrupt the estimate</li>
+      <li><span class="note">Tune:</span> ROI bounds via ROS2 params — no recompile needed</li>
+    </ul>
+  </div>
+
+</div>
+
+<div class="footer">Hunter Sensors · LiDAR Hitch Angle · 2025</div>
+</body>
+</html>

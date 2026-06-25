@@ -23,8 +23,12 @@ and publishes the Control message. Gear is published at 1 Hz (DRIVE).
 
 from __future__ import annotations
 
+import faulthandler
 import math
 import os
+import sys
+
+faulthandler.enable()
 from typing import Optional
 
 import numpy as np
@@ -62,6 +66,13 @@ class RLBridgeNode(Node):
         self.declare_parameter("td3_reverse_model_path", "")
         self.declare_parameter("action_space", "fixed_speed")  # or 'variable_speed'
         self.declare_parameter("control_rate_hz", 10.0)
+        # The debug BEV image (/rl_bridge/bev_image, relayed into RViz) is for
+        # human verification, not control, so it renders on its own slower
+        # timer instead of every control tick. Rendering + occupancy build for
+        # the debug env is the single most expensive thing the bridge does;
+        # decoupling it keeps the 10 Hz control loop cheap on the Jetson. Set
+        # 0 to disable BEV publishing entirely.
+        self.declare_parameter("bev_publish_rate_hz", 4.0)
         self.declare_parameter("max_steering_rad", math.pi / 4.0)
         self.declare_parameter("default_velocity_mps", 5.0)
         # Ratio of training-truck length to actual vehicle length. The policy
@@ -97,11 +108,25 @@ class RLBridgeNode(Node):
         # unfiltered.
         self.declare_parameter("reverse_steer_rate_ema_alpha", 0.3)
 
+        # Smith Predictor: predictor-feedback shim that lets a delay-free-
+        # trained policy (e.g. v15) deploy on a delayed sim/robot. When
+        # enabled, the bridge runs a shadow `StateSpaceTractorTrailer` in
+        # parallel; each tick, the shadow is re-synced from the measured
+        # ROS state and rolled forward `smith_delay_steps` ticks through
+        # the pending action queue. The predicted future state is what's
+        # fed to the adapter / policy, so the policy effectively sees a
+        # delay-free virtual env. See `scripts/smith_predictor.py`.
+        self.declare_parameter("use_smith_predictor", False)
+        self.declare_parameter("smith_steer_tau", 0.05)
+        self.declare_parameter("smith_velocity_tau", 0.10)
+        self.declare_parameter("smith_delay_steps", 2)
+
         self.e2e_rl_path = str(self.get_parameter("e2e_rl_path").value)
         self.model_path = str(self.get_parameter("td3_model_path").value)
         self.reverse_model_path = str(self.get_parameter("td3_reverse_model_path").value)
         self.action_space = str(self.get_parameter("action_space").value)
         self.control_rate_hz = float(self.get_parameter("control_rate_hz").value)
+        self.bev_publish_rate_hz = float(self.get_parameter("bev_publish_rate_hz").value)
         self.max_steering = float(self.get_parameter("max_steering_rad").value)
         self.default_velocity = float(self.get_parameter("default_velocity_mps").value)
         self.world_scale = float(self.get_parameter("world_scale").value)
@@ -111,6 +136,11 @@ class RLBridgeNode(Node):
         self.reverse_steer_rate_gain = float(self.get_parameter("reverse_steer_rate_gain").value)
         self.reverse_steer_rate_ema_alpha = float(self.get_parameter("reverse_steer_rate_ema_alpha").value)
         self._reverse_steer_rate_ema = 0.0
+        self.use_smith_predictor = bool(self.get_parameter("use_smith_predictor").value)
+        self.smith_steer_tau = float(self.get_parameter("smith_steer_tau").value)
+        self.smith_velocity_tau = float(self.get_parameter("smith_velocity_tau").value)
+        self.smith_delay_steps = int(self.get_parameter("smith_delay_steps").value)
+        self.smith_predictor = None  # built after env+adapter setup below
         self._last_kine_scale = 1.0
 
         if not self.model_path:
@@ -220,6 +250,29 @@ class RLBridgeNode(Node):
             env_kwargs=env_kwargs,
             world_scale=self.world_scale,
         )
+
+        # Smith Predictor: instantiate AFTER adapter so the e2e_rl path is
+        # on sys.path (adapter does that). The predictor's shadow vehicle
+        # uses the same kinematic model the env wraps.
+        if self.use_smith_predictor:
+            from electrans_rl_bridge.smith_predictor import SmithPredictorState
+            action_dim = 2 if self.action_space == "variable_speed" else 1
+            self.smith_predictor = SmithPredictorState(
+                steer_tau=self.smith_steer_tau,
+                velocity_tau=self.smith_velocity_tau,
+                dt=1.0 / self.control_rate_hz,
+                delay_steps=self.smith_delay_steps,
+                action_dim=action_dim,
+            )
+            self.get_logger().info(
+                f"Smith Predictor (dual-shadow + residual) ENABLED  "
+                f"τ_steer={self.smith_steer_tau}s  τ_vel={self.smith_velocity_tau}s  "
+                f"action_dim={action_dim}"
+            )
+            # Action issued on the previous tick (currently in the
+            # actuator pipeline). Initialise to zero; gets overwritten
+            # after the first policy call.
+            self._last_smith_action = np.zeros(action_dim, dtype=np.float32)
 
         # MultiInputPolicy works for Dict obs (BEV); for flat Box obs use MlpPolicy.
         from gymnasium import spaces
@@ -365,6 +418,12 @@ class RLBridgeNode(Node):
 
         self.create_timer(self._dt, self._on_control_tick)
         self.create_timer(1.0, self._on_gear_tick)
+        # Debug BEV renders on its own slow timer, decoupled from control.
+        # Single-threaded executor (rclpy.spin) serializes this with the
+        # control tick, so there's no race on the shared adapter state the
+        # control tick writes via the setters.
+        if self.bev_publish_rate_hz > 0.0:
+            self.create_timer(1.0 / self.bev_publish_rate_hz, self._on_bev_tick)
 
         self.get_logger().info(
             f"RL bridge up — action_space={self.action_space}, rate={self.control_rate_hz} Hz, "
@@ -506,6 +565,19 @@ class RLBridgeNode(Node):
         # rate cap so it won't trip during normal operation.
         if abs(self._target_steering - self._steering) > 0.15:
             self._target_steering = self._steering
+            # Big state jump (e.g. sim reset via /initialpose) — also
+            # re-seed the Smith Predictor's shadows so they don't carry
+            # stale state into the new episode.
+            if self.smith_predictor is not None:
+                # Pass the current ROS state so both shadows re-initialise
+                # at the post-reset position; otherwise the first tick
+                # after reset would have a huge residual.
+                self.smith_predictor.reset(
+                    x=x, y=y, yaw=yaw,
+                    steer=self._steering, xd=xd,
+                    hitch_angle=self._hitch_angle,
+                )
+                self._last_smith_action = np.zeros_like(self._last_smith_action)
 
         # Pick policy + adapter frame for this tick. Only honour drive_reverse
         # if we actually loaded a reverse checkpoint; otherwise stay forward.
@@ -513,8 +585,27 @@ class RLBridgeNode(Node):
         self.adapter.set_reverse_mode(is_reverse)
         active_model = self.reverse_model if is_reverse else self.model
 
-        self.adapter.set_ego_state(x, y, yaw, self._target_steering, xd)
-        self.adapter.set_trailer_state_from_hitch(self._hitch_angle)
+        # Smith Predictor (dual-shadow, with explicit residual feedback):
+        # Both shadows step forward each tick with the previous command;
+        # the residual = (real - delayed_shadow) absorbs model mismatch
+        # between our Python kinematic model and ROS's C++ sim (different
+        # RK4 vs Euler, different trailer kinematic equation, etc.). The
+        # delay-free shadow's state + residual = the delay-free-equivalent
+        # state to feed the (delay-free-trained) policy.
+        if self.smith_predictor is not None and self._drive_enabled:
+            # Use the last commanded action — the one currently propagating
+            # through the actuator pipeline whose effect we just measured.
+            x, y, yaw, predicted_steer, xd, predicted_hitch = (
+                self.smith_predictor.step_and_predict(
+                    self._last_smith_action,
+                    x, y, yaw, self._steering, xd, self._hitch_angle,
+                )
+            )
+            self.adapter.set_ego_state(x, y, yaw, predicted_steer, xd)
+            self.adapter.set_trailer_state_from_hitch(predicted_hitch)
+        else:
+            self.adapter.set_ego_state(x, y, yaw, self._target_steering, xd)
+            self.adapter.set_trailer_state_from_hitch(self._hitch_angle)
 
         try:
             obs = self.adapter.get_observation()
@@ -529,41 +620,62 @@ class RLBridgeNode(Node):
         raw_msg.data = [float(v) for v in action]
         self.pub_raw_action.publish(raw_msg)
 
-        steering_rate = float(action[0])
+        # Y-axis flip about the truck's forward axis is applied to the obs
+        # in ros_env_adapter (centerline ys_local, v.s, β). The policy's
+        # output is in that mirrored frame, so we negate the steering rate
+        # to un-mirror it before commanding the real (un-flipped) vehicle.
+        steering_rate = -float(action[0])
+
+        # Remember the just-chosen action so next tick's dual-shadow
+        # `step_and_predict` can use it as the action that's currently
+        # propagating through the actuator pipeline. The shadows propagate
+        # in real-world frame (same as ROS), so they must receive the
+        # un-flipped steering rate, NOT the policy's raw mirrored-frame
+        # output — otherwise the predictor's state diverges from reality.
+        if self.smith_predictor is not None:
+            self._last_smith_action = np.asarray(action, dtype=np.float32).copy()
+            self._last_smith_action[0] = steering_rate
         if self.action_space == "variable_speed" and action.size >= 2:
             velocity_cmd = float(action[1])
         else:
             velocity_cmd = -self.default_velocity if is_reverse else self.default_velocity
 
-        # Proportional kinematic scaling for reverse: the policy was trained
-        # with the vehicle moving at v∈[-3, -0.5] m/s and outputs steer rates
-        # calibrated for those speeds. The bridge clamps velocity to a much
-        # lower value for the lab robot (~0.4 m/s), but the policy doesn't
-        # see velocity in its observation, so it still commands rates as if
-        # moving at -3 m/s. Result: tire angle accumulates over the same
-        # number of seconds but the truck travels less distance, producing
-        # a far tighter geometric turn than the policy intended. Scaling
-        # steer_rate by |v_clamped|/|v_policy_intent| preserves the
-        # steer-per-meter relationship.
-        if is_reverse and abs(velocity_cmd) > 1e-3:
-            v_intent = abs(velocity_cmd)  # before clamp
-            v_clamped = min(v_intent, self.bridge_v_max_reverse)
-            v_clamped = max(v_clamped, self.bridge_v_min)
-            scale = v_clamped / v_intent
-            steering_rate *= scale
-            self._last_kine_scale = scale  # for debug
-        # EMA smoothing (kills 5 Hz bang-bang oscillation from the policy)
-        if is_reverse:
-            if self.reverse_steer_rate_ema_alpha < 1.0:
-                a = self.reverse_steer_rate_ema_alpha
-                self._reverse_steer_rate_ema = (
-                    a * steering_rate + (1.0 - a) * self._reverse_steer_rate_ema
-                )
-                steering_rate = self._reverse_steer_rate_ema
-            if self.reverse_steer_rate_gain != 1.0:
-                steering_rate *= self.reverse_steer_rate_gain
-        else:
-            self._reverse_steer_rate_ema = 0.0
+        # When the Smith Predictor is on, the policy sees a delay-free
+        # virtual env and its commanded rate is already calibrated for
+        # that scenario. Skip the kinematic-scaling, EMA smoothing, and
+        # rate-gain hacks — they were workarounds for an uncompensated
+        # delayed env and are counterproductive once the predictor is
+        # absorbing the latency.
+        if self.smith_predictor is None:
+            # Proportional kinematic scaling for reverse: the policy was trained
+            # with the vehicle moving at v∈[-3, -0.5] m/s and outputs steer rates
+            # calibrated for those speeds. The bridge clamps velocity to a much
+            # lower value for the lab robot (~0.4 m/s), but the policy doesn't
+            # see velocity in its observation, so it still commands rates as if
+            # moving at -3 m/s. Result: tire angle accumulates over the same
+            # number of seconds but the truck travels less distance, producing
+            # a far tighter geometric turn than the policy intended. Scaling
+            # steer_rate by |v_clamped|/|v_policy_intent| preserves the
+            # steer-per-meter relationship.
+            if is_reverse and abs(velocity_cmd) > 1e-3:
+                v_intent = abs(velocity_cmd)  # before clamp
+                v_clamped = min(v_intent, self.bridge_v_max_reverse)
+                v_clamped = max(v_clamped, self.bridge_v_min)
+                scale = v_clamped / v_intent
+                steering_rate *= scale
+                self._last_kine_scale = scale  # for debug
+            # EMA smoothing (kills 5 Hz bang-bang oscillation from the policy)
+            if is_reverse:
+                if self.reverse_steer_rate_ema_alpha < 1.0:
+                    a = self.reverse_steer_rate_ema_alpha
+                    self._reverse_steer_rate_ema = (
+                        a * steering_rate + (1.0 - a) * self._reverse_steer_rate_ema
+                    )
+                    steering_rate = self._reverse_steer_rate_ema
+                if self.reverse_steer_rate_gain != 1.0:
+                    steering_rate *= self.reverse_steer_rate_gain
+            else:
+                self._reverse_steer_rate_ema = 0.0
 
         if self._drive_enabled:
             self._target_steering = float(
@@ -627,13 +739,11 @@ class RLBridgeNode(Node):
         ctl.longitudinal.is_defined_acceleration = True
         self.pub_control.publish(ctl)
 
-        # ---- debug publishes ----
-        # Always publish the full observation as a flat float vector on
-        # /rl_bridge/state_vector. Always publish the 32x32 BEV image on
-        # /rl_bridge/bev_image regardless of the policy's obs pipeline -- the
-        # adapter spins up a debug BEV renderer on construction so we can
-        # visualise what the env sees even when the policy uses state-only or
-        # lidar+state observations.
+        # ---- debug publish (cheap part only) ----
+        # Publish the full observation as a flat float vector on
+        # /rl_bridge/state_vector every control tick (cheap). The 32x32 BEV
+        # image is rendered + published on the separate _on_bev_tick timer so
+        # its cost stays out of the control loop.
         if isinstance(obs, dict):
             vec = obs["vector"].astype(np.float32).flatten()
         else:
@@ -642,19 +752,28 @@ class RLBridgeNode(Node):
         vmsg.data = vec.tolist()
         self.pub_vec.publish(vmsg)
 
+    def _on_bev_tick(self):
+        """Render + publish the 32x32 debug BEV image on a slow timer,
+        decoupled from the control loop. Always published (regardless of the
+        policy's obs pipeline) so the env's view can be verified in RViz — a
+        relay maps /rl_bridge/bev_image onto the RViz RecognitionResultOnImage
+        panel topic. Uses the latest ego/trailer state the control tick stored
+        via the adapter setters; skips quietly until both ego + path exist."""
+        if self._ego is None or not self.adapter.has_path():
+            return
         img = self.adapter.get_debug_bev_image()
-
-        if img is not None:
-            img_msg = Image()
-            img_msg.header.stamp = ctl.stamp
-            img_msg.header.frame_id = "base_link"
-            img_msg.height = int(img.shape[0])
-            img_msg.width = int(img.shape[1])
-            img_msg.encoding = "mono8"
-            img_msg.is_bigendian = 0
-            img_msg.step = int(img.shape[1])
-            img_msg.data = img.reshape(-1).tobytes()
-            self.pub_bev.publish(img_msg)
+        if img is None:
+            return
+        img_msg = Image()
+        img_msg.header.stamp = self.get_clock().now().to_msg()
+        img_msg.header.frame_id = "base_link"
+        img_msg.height = int(img.shape[0])
+        img_msg.width = int(img.shape[1])
+        img_msg.encoding = "mono8"
+        img_msg.is_bigendian = 0
+        img_msg.step = int(img.shape[1])
+        img_msg.data = img.reshape(-1).tobytes()
+        self.pub_bev.publish(img_msg)
 
     def _on_gear_tick(self):
         # The sim's DELAY_STEER_ACC_GEARED_TRAILER vehicle model uses the gear

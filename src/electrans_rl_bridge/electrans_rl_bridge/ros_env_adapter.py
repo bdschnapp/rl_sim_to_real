@@ -185,10 +185,34 @@ class ROSLineFollowingAdapter:
         """
         if not self._path_set or self._ego_pose is None:
             raise RuntimeError("get_observation: reference path or ego not set")
-        self._refresh_env()
-        return self.env._get_obs()
+        # Control path: refresh ONLY the policy env. The debug BEV env is
+        # refreshed separately in get_debug_bev_image (driven by a slower
+        # timer in the bridge), so the 10 Hz control loop pays for just one
+        # occupancy-grid build, not the policy + debug envs twice over.
+        xs_local, ys_local = self._local_centerline()
+        self._apply_state_to(self.env, xs_local, ys_local)
+        obs = self.env._get_obs()
+        # Empirically, the reverse policy needs the β observation in the
+        # un-flipped (real-world) sign, while the forward policy needs it
+        # in the Y-flipped sign that naturally falls out of the env-frame
+        # mirror. The two policies were trained from the same env-class
+        # definition, but evidently have an asymmetric β-sign convention
+        # baked in. Until we identify the training-time cause, conditionally
+        # negate the β obs only in reverse mode — env geometry (trailer
+        # position, lidar mount) stays Y-flipped for both.
+        if self._is_reverse:
+            if isinstance(obs, np.ndarray):
+                obs[1] = -obs[1]
+            elif isinstance(obs, dict) and "vector" in obs:
+                obs["vector"][1] = -obs["vector"][1]
+        return obs
 
-    def _refresh_env(self):
+    def _local_centerline(self):
+        """Transform the stored ROS-frame centerline into the truck-local,
+        Y-flipped, forward-oriented frame the env expects. Pure computation on
+        the cached path + ego pose — no env mutation — so it can be called
+        cheaply from both the control path (policy env) and the debug-BEV path
+        (debug env) without rebuilding occupancy twice. Returns (xs, ys)."""
         x, y, yaw = self._ego_pose
         # Forward mode: rotate world by -yaw so env +X is truck heading.
         # Reverse mode: rotate by -yaw + π so env +X is truck's BACKWARD
@@ -199,10 +223,15 @@ class ROSLineFollowingAdapter:
         c, s = math.cos(rot_angle), math.sin(rot_angle)
 
         # Centerline in truck-local frame, then scaled.
+        # The trailing `-` on ys_local applies a Y-axis flip about the truck's
+        # forward axis (equivalent to a 180° roll in the truck's body frame).
+        # Test hypothesis: the policy was trained against an env-frame whose
+        # Y-axis is opposite to the one the bridge produces with a pure
+        # rotation, so we mirror everything downstream of the truck's X-axis.
         dx = self._raw_xs - x
         dy = self._raw_ys - y
         xs_local = ((dx * c - dy * s) * self.world_scale).astype(np.float32)
-        ys_local = ((dx * s + dy * c) * self.world_scale).astype(np.float32)
+        ys_local = (-(dx * s + dy * c) * self.world_scale).astype(np.float32)
 
         # Direction sanity check: lane_reference_node always publishes the
         # centerline in the canonical lanelet direction. If the truck is
@@ -212,10 +241,7 @@ class ROSLineFollowingAdapter:
         # must reverse the order before storing it, otherwise k1/k2 read
         # from cells behind the truck instead of ahead.
         xs_local, ys_local = self._orient_centerline_forward(xs_local, ys_local)
-
-        self._apply_state_to(self.env, xs_local, ys_local)
-        if self.debug_bev_env is not self.env:
-            self._apply_state_to(self.debug_bev_env, xs_local, ys_local)
+        return xs_local, ys_local
 
     @staticmethod
     def _orient_centerline_forward(xs_local, ys_local):
@@ -265,15 +291,19 @@ class ROSLineFollowingAdapter:
         # Forward mode: truck nose at env +X. Reverse mode: nose at env -X
         # (matches Reverse* env training where p = path_tangent + π).
         v.p = math.pi if self._is_reverse else 0.0
-        v.s = self._steering
+        # Steering and hitch sign are negated to match the Y-axis flip applied
+        # to the centerline in `_refresh_env`. A reflection of env y inverts
+        # both wheel-deflection direction and the truck-trailer angle, so for
+        # the obs to stay self-consistent we mirror these scalar quantities too.
+        v.s = -self._steering
         v.xd = self._xd * self.world_scale
 
-        # Trailer reconstruction from hitch angle. Works for both modes
-        # because we plug v.p into the standard formula; only the cos/sin
-        # values flip sign when v.p = π.
+        # Trailer reconstruction from hitch angle. Uses the flipped β so the
+        # trailer's env-frame position lands on the mirrored side of the
+        # truck, matching the mirrored centerline.
         hitch_x = v.x - v.lr * math.cos(v.p)
         hitch_y = v.y - v.lr * math.sin(v.p)
-        trailer_yaw = v.p - self._hitch_angle
+        trailer_yaw = v.p - (-self._hitch_angle)
         v.trailer.yaw = trailer_yaw
         v.trailer.x = hitch_x - v.trailer.L * math.cos(trailer_yaw)
         v.trailer.y = hitch_y - v.trailer.L * math.sin(trailer_yaw)
@@ -284,7 +314,11 @@ class ROSLineFollowingAdapter:
         doesn't use a BEV obs). Caller must have set ego + reference path."""
         if not self._path_set or self._ego_pose is None:
             return None
-        # If the policy env isn't BEV, _refresh_env may not have been called
-        # yet via get_observation; ensure both envs see fresh state here.
-        self._refresh_env()
+        # Debug path: refresh ONLY the debug BEV env from the latest cached
+        # state. Decoupled from get_observation so the BEV can render on its
+        # own slower timer without forcing an extra occupancy build into the
+        # control loop. Uses whatever ego/steering/hitch the last control tick
+        # stored via the setters.
+        xs_local, ys_local = self._local_centerline()
+        self._apply_state_to(self.debug_bev_env, xs_local, ys_local)
         return self.debug_bev_env._get_bev_image_obs()
