@@ -176,7 +176,7 @@ class NeuralDynamicsTractorTrailer:
         self,
         dynamics_net: DynamicsMLP,
         args: Optional[dict] = None,
-        trailer_length: float = 2.0,
+        trailer_length: float = 2.8,
         device: Optional[str] = None,
     ):
         # Accept the e2e_rl-style args dict, but fall back to sensible
@@ -355,7 +355,7 @@ class NeuralDynamicsTractorTrailer:
         cls,
         checkpoint_path: str,
         args: Optional[dict] = None,
-        trailer_length: float = 2.0,
+        trailer_length: float = 2.8,
         device: Optional[str] = None,
     ) -> "NeuralDynamicsTractorTrailer":
         """Convenience constructor: load `DynamicsMLP` weights then

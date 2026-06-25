@@ -442,7 +442,7 @@ class SmithPredictorState:
         shadow._xd_target = float(xd)
 
         trailer_yaw = float(yaw) - float(hitch_angle)
-        L_trailer = float(getattr(shadow.trailer, "L", 2.0))
+        L_trailer = float(getattr(shadow.trailer, "L", 2.8))
         lr = float(getattr(shadow, "lr", 0.32))
         hitch_x = float(x) - lr * np.cos(float(yaw))
         hitch_y = float(y) - lr * np.sin(float(yaw))

@@ -33,7 +33,7 @@
     #   - autoware_trailer_state_visualizer (mesh placement + marker dims)
     # Both nodes load this file at startup; do NOT duplicate elsewhere.
     hitch_offset: 0.0          # hitch at rear axle; matches training-time trailer model
-    trailer_wheelbase: 2.0     # AgileX lab trailer (~2 m); verify in person
+    trailer_wheelbase: 2.8     # AgileX lab trailer actual length 2.8 m (one true value)
     max_hitch_angle: 1.3963    # 80 deg
     # Visualizer-only marker dimensions (sim physics doesn't use these).
     trailer_width: 0.33

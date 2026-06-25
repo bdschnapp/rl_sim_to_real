@@ -58,10 +58,11 @@ def _apply_lab_config_overrides(e2e_rl_path: Path) -> None:
     # truck-local-frame observation pipeline at runtime.
 
     # Vehicle dimensions. trailer_length_m doubles as the kinematic wheelbase
-    # passed to StateSpaceTractorTrailer; 2.0 m matches the real AgileX rig.
+    # passed to StateSpaceTractorTrailer; 2.8 m is the real AgileX trailer
+    # length (the single source of truth — see simulator_model.param.yaml).
     c.tractor_length_m = 1.0
     c.tractor_width_m = 0.65
-    c.trailer_length_m = 2.0
+    c.trailer_length_m = 2.8
     # Trailer width matches the tractor width (real AgileX trailer is the
     # same box as the cab, not a narrower stub).
     c.trailer_width_m = 0.65

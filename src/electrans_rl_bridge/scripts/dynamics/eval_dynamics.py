@@ -111,7 +111,7 @@ def rollout_eval(
     # NN dynamics
     nn_vehicle = NeuralDynamicsTractorTrailer(
         dynamics_net=model,
-        args={"dt": 0.1, "lf": 0.33, "lr": 0.32, "trailer_length_m": 2.0},
+        args={"dt": 0.1, "lf": 0.33, "lr": 0.32, "trailer_length_m": 2.8},
         device=device,
     )
 
@@ -122,7 +122,7 @@ def rollout_eval(
     ref_args = dict(c.tesla_model_s_vehicle_params)
     ref_args["lf"] = 0.33
     ref_args["lr"] = 0.32
-    ref_vehicle = StateSpaceTractorTrailer(args=dict(ref_args), trailer_length=2.0)
+    ref_vehicle = StateSpaceTractorTrailer(args=dict(ref_args), trailer_length=2.8)
 
     # Same initial state for both.
     rng = np.random.default_rng(seed)

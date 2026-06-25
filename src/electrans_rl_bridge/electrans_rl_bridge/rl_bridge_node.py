@@ -167,7 +167,7 @@ class RLBridgeNode(Node):
         # wheelbase value (2.0 m).
         e2erl_config.tractor_length_m = 1.0
         e2erl_config.tractor_width_m = 0.65
-        e2erl_config.trailer_length_m = 2.0
+        e2erl_config.trailer_length_m = 2.8
         # Trailer width matches the tractor width — the real AgileX trailer
         # is roughly the same width as the truck, not a narrower box.
         e2erl_config.trailer_width_m = 0.65

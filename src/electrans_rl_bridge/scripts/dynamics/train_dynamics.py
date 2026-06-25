@@ -93,7 +93,7 @@ def make_synthetic_dataset(
     n_rollouts = max(1, int(math.ceil(n_samples / samples_per_rollout)))
 
     for _ in range(n_rollouts):
-        vehicle = StateSpaceTractorTrailer(args=dict(args), trailer_length=2.0)
+        vehicle = StateSpaceTractorTrailer(args=dict(args), trailer_length=2.8)
         vehicle.reset(
             xd=float(rng.uniform(-2.0, 2.0)),
             x=0.0, y=0.0,
