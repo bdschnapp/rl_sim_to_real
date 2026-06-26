@@ -196,6 +196,13 @@ def main() -> None:
     parser.add_argument("--e2e-rl-path", dest="e2e_rl_path", default=str(DEFAULT_E2E_RL))
     parser.add_argument("--variable-speed", dest="variable_speed", action="store_true",
                         help="2-D action [steer_rate, velocity]; bounded by --v-min/--v-max.")
+    parser.add_argument("--stop-signal", dest="stop_signal", action="store_true",
+                        help=("2-D action [steer_rate, stop_signal] at CONSTANT speed. "
+                              "stop_signal > --stop-threshold stops + terminates with "
+                              "reward -(--stop-penalty). Mutually exclusive with "
+                              "--variable-speed."))
+    parser.add_argument("--stop-threshold", dest="stop_threshold", type=float, default=0.0)
+    parser.add_argument("--stop-penalty", dest="stop_penalty", type=float, default=200.0)
     parser.add_argument("--v-min", dest="v_min", type=float, default=0.5)
     parser.add_argument("--v-max", dest="v_max", type=float, default=3.0)
     # Optional reward-shaping passthroughs (same semantics as train_lab_model).
@@ -204,6 +211,9 @@ def main() -> None:
     parser.add_argument("--curvature-lookahead-samples", dest="curvature_lookahead",
                         type=int, default=10)
     args = parser.parse_args()
+
+    if args.variable_speed and args.stop_signal:
+        parser.error("--variable-speed and --stop-signal are mutually exclusive.")
 
     e2e_rl_path = Path(args.e2e_rl_path).resolve()
     out_dir = Path(args.out_dir).resolve()
@@ -217,6 +227,16 @@ def main() -> None:
     tlm._patch_actuator_lag(e2e_rl_path, steer_tau=0.05, velocity_tau=0.10)
     if args.variable_speed:
         tlm._patch_variable_speed_action(e2e_rl_path, v_min=args.v_min, v_max=args.v_max)
+    elif args.stop_signal:
+        # Constant-speed + stop-signal mode. Patches the BASE lidar classes our
+        # tractor-only env subclasses; TractorOnlyMixin.step calls super().step
+        # so the stop-intercept fires here too.
+        from stop_signal_patch import patch_stop_signal_action
+        patch_stop_signal_action(
+            e2e_rl_path,
+            threshold=args.stop_threshold,
+            stop_penalty=args.stop_penalty,
+        )
     tlm._patch_velocity_randomisation(e2e_rl_path)
     if args.curvature_speed_weight > 0.0:
         # NOTE: the curvature/target-speed reward patches in train_lab_model

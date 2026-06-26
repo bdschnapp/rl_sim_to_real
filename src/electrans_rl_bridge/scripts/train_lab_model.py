@@ -943,6 +943,25 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--stop-signal", dest="stop_signal", action="store_true",
+        help=(
+            "Train a CONSTANT-SPEED + STOP-SIGNAL policy: action becomes 2-D "
+            "[steer_rate, stop_signal] with speed held CONSTANT (fixed_speed "
+            "stays True; action[1] is dropped by format_action for driving). "
+            "If stop_signal > --stop-threshold the agent chooses to STOP: the "
+            "vehicle speed is zeroed and the episode terminates with reward "
+            "-(--stop-penalty). Mutually exclusive with --variable-speed."
+        ),
+    )
+    parser.add_argument(
+        "--stop-threshold", dest="stop_threshold", type=float, default=0.0,
+        help="stop_signal above this triggers a stop (default: 0.0).",
+    )
+    parser.add_argument(
+        "--stop-penalty", dest="stop_penalty", type=float, default=200.0,
+        help="Magnitude of the negative reward on a stop (default: 200.0).",
+    )
+    parser.add_argument(
         "--v-min", dest="v_min", type=float, default=0.5,
         help="Min |velocity| for variable-speed policy (default: 0.5 m/s).",
     )
@@ -1031,6 +1050,9 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    if args.variable_speed and args.stop_signal:
+        parser.error("--variable-speed and --stop-signal are mutually exclusive.")
+
     e2e_rl_path = Path(args.e2e_rl_path).resolve()
     out_dir = Path(args.out_dir).resolve()
 
@@ -1043,6 +1065,15 @@ def main() -> None:
     if args.variable_speed:
         _patch_variable_speed_action(
             e2e_rl_path, v_min=args.v_min, v_max=args.v_max
+        )
+    elif args.stop_signal:
+        # Constant-speed + stop-signal mode: 2-D action [steer_rate,
+        # stop_signal], speed stays constant (fixed_speed=True untouched).
+        from stop_signal_patch import patch_stop_signal_action
+        patch_stop_signal_action(
+            e2e_rl_path,
+            threshold=args.stop_threshold,
+            stop_penalty=args.stop_penalty,
         )
     # Per-episode velocity randomisation guards on self.fixed_speed
     # internally, so it's a no-op when variable_speed is on.
