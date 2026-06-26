@@ -307,9 +307,59 @@ def _default_model_path(scenario: str, lidar_beams: int, reward: str) -> Path:
     )
 
 
+def _run_tractor_only_eval(
+    *,
+    model_path: Path,
+    scenario: str,
+    reward: str,
+    lidar_beams: int,
+    n_episodes: int,
+    render: bool,
+) -> None:
+    """Evaluate a tractor-only (no-trailer) policy. run_model.run_rl_model builds
+    the trailer env (32-dim obs), incompatible with the 29-dim tractor-only
+    policy, so we build Environments.TractorOnly directly and reuse e2e_rl's
+    generic _run_episodes loop. The --variable-speed patch (applied in main) hits
+    the base LidarState classes TractorOnly subclasses, so the 2-D action space
+    carries over transparently."""
+    import importlib
+    from stable_baselines3 import TD3
+    from run_model import _run_episodes
+
+    cls_name = (
+        "TractorOnlyLidarStateLineFollowingEnv" if scenario == "forward"
+        else "ReverseTractorOnlyLidarStateLineFollowingEnv"
+    )
+    env_cls = getattr(importlib.import_module("Environments.TractorOnly"), cls_name)
+    env = env_cls(
+        render_mode="human" if render else None,
+        max_episode_steps=1000,
+        lidar_beams=lidar_beams,
+        reward_mode=reward,
+    )
+    model = TD3.load(str(model_path), device="auto")
+    _run_episodes(
+        env,
+        lambda obs: model.predict(obs, deterministic=True)[0],
+        n_episodes,
+        render,
+        f"{scenario}/tractor-only",
+    )
+    env.close()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--scenario", choices=["forward", "reverse"], required=True)
+    parser.add_argument(
+        "--tractor-only", dest="tractor_only", action="store_true",
+        help=(
+            "Evaluate a TRACTOR-ONLY (no-trailer) policy on the "
+            "Environments.TractorOnly env (29-dim obs = 5 state + lidar) "
+            "instead of the trailer env. Default model dir when --model is "
+            "omitted: <repo>/lab_models_tractor_only/."
+        ),
+    )
     parser.add_argument(
         "--model", default=None,
         help=(
@@ -325,8 +375,8 @@ def main() -> None:
         help="Skip the pygame window (default: render).",
     )
     parser.add_argument(
-        "--trailer-length", dest="trailer_length", type=float, default=2.0,
-        help="Trailer length (m) used by pygame + obs pipeline (default: 2.0).",
+        "--trailer-length", dest="trailer_length", type=float, default=2.8,
+        help="Trailer length (m) used by pygame + obs pipeline (default: 2.8, the real AgileX trailer).",
     )
     parser.add_argument(
         "--trailer-width", dest="trailer_width", type=float, default=0.65,
@@ -453,9 +503,16 @@ def main() -> None:
         )
     _apply_path_override(e2e_rl_path, args.path_type)
 
-    model_path = Path(args.model) if args.model else _default_model_path(
-        args.scenario, args.lidar_beams, args.reward,
-    )
+    if args.model:
+        model_path = Path(args.model)
+    elif args.tractor_only:
+        obs_tag = f"lidar_{args.lidar_beams}" if args.lidar_beams != 16 else "lidar"
+        model_path = (REPO_ROOT / "lab_models_tractor_only" / "models" /
+                      args.scenario / obs_tag / args.reward / "best_model.zip")
+    else:
+        model_path = _default_model_path(
+            args.scenario, args.lidar_beams, args.reward,
+        )
     if not model_path.exists():
         raise FileNotFoundError(f"Model not found: {model_path}")
 
@@ -470,19 +527,29 @@ def main() -> None:
           f"lidar_beams={args.lidar_beams}  episodes={args.episodes}  "
           f"render={args.render}")
 
-    from run_model import run_rl_model
+    if args.tractor_only:
+        _run_tractor_only_eval(
+            model_path=model_path,
+            scenario=args.scenario,
+            reward=args.reward,
+            lidar_beams=args.lidar_beams,
+            n_episodes=args.episodes,
+            render=args.render,
+        )
+    else:
+        from run_model import run_rl_model
 
-    run_rl_model(
-        model_path=model_path,
-        scenario=args.scenario,
-        obs="lidar",
-        reward=args.reward,
-        encoder="scratch",
-        encoder_path=None,
-        lidar_beams=args.lidar_beams,
-        n_episodes=args.episodes,
-        render=args.render,
-    )
+        run_rl_model(
+            model_path=model_path,
+            scenario=args.scenario,
+            obs="lidar",
+            reward=args.reward,
+            encoder="scratch",
+            encoder_path=None,
+            lidar_beams=args.lidar_beams,
+            n_episodes=args.episodes,
+            render=args.render,
+        )
 
     if args.log_velocity:
         _run_velocity_diagnostic(
