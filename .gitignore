@@ -52,3 +52,10 @@ lab_models_*/.train_logs/
 
 # Backup files
 *.bak
+
+# Overnight training orchestration logs
+.train_logs/
+# New 2.8m model output dirs are training artifacts until promoted to deployed
+lab_models_v21/
+lab_models_v21_curriculum/
+lab_models_tractor_only/
