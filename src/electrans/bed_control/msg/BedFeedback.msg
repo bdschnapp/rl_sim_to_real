@@ -1,0 +1,5 @@
+float32 FeedbackFSpeed
+float32 FeedbackRSpeed
+float32 FeedbackFSteer
+float32 FeedbackRSteer
+float64 FeedbackTime

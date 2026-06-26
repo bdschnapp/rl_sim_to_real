@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>bed_control</name>
+  <version>0.0.0</version>
+  <!-- ROS 2 mirror of the IndoorPerception (ROS 1) bed_control messages.
+       Field-for-field copy of bed_control/{Perception,Obstacle,BedPose,BedFeedback}
+       so the default ros1_bridge auto-mapping relays ROS 1 bed_control/Perception
+       (topic /perception_to_mpc) into ROS 2 with no custom mapping rule. The
+       perception nodes + roscore + ros1_bridge run on the SEPARATE lab PC; this
+       package is built on BOTH the lab PC's ROS 2 side and the robot (so the
+       Jetson consumer can deserialize the bridged topic). Messages only — none
+       of the ROS 1 package's scripts/control code is mirrored. -->
+  <description>ROS 2 mirror of IndoorPerception bed_control messages for ros1_bridge</description>
+  <maintainer email="ben.schnapp@cplaneai.com">Ben Schnapp</maintainer>
+  <license>Proprietary</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>rosidl_default_generators</buildtool_depend>
+
+  <depend>std_msgs</depend>
+  <depend>geometry_msgs</depend>
+
+  <exec_depend>rosidl_default_runtime</exec_depend>
+
+  <member_of_group>rosidl_interface_packages</member_of_group>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
