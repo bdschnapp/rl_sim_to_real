@@ -1059,9 +1059,10 @@ def main() -> None:
     _apply_lab_config_overrides(e2e_rl_path)
     _patch_env_vehicle_params(e2e_rl_path)
     _patch_path_generator(e2e_rl_path)
-    # v16: simulate ROS-side actuator lag during training so the policy
-    # learns to handle the phase delay that destabilised v15 in deployment.
-    _patch_actuator_lag(e2e_rl_path, steer_tau=0.05, velocity_tau=0.10)
+    # NO actuator-lag patch — training is DELAY-FREE by design. Actuator latency
+    # is a sim-to-real problem compensated at DEPLOY time by the Smith Predictor,
+    # never learned in the env. (_patch_actuator_lag is intentionally left
+    # defined-but-unused for reference.)
     if args.variable_speed:
         _patch_variable_speed_action(
             e2e_rl_path, v_min=args.v_min, v_max=args.v_max

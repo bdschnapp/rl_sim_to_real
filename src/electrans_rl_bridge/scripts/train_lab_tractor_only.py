@@ -224,7 +224,8 @@ def main() -> None:
     tlm._apply_lab_config_overrides(e2e_rl_path)
     tlm._patch_env_vehicle_params(e2e_rl_path)
     tlm._patch_path_generator(e2e_rl_path)
-    tlm._patch_actuator_lag(e2e_rl_path, steer_tau=0.05, velocity_tau=0.10)
+    # NO actuator-lag patch — training is delay-free by design (sim-to-real
+    # latency is handled at deploy by the Smith Predictor, not learned here).
     if args.variable_speed:
         tlm._patch_variable_speed_action(e2e_rl_path, v_min=args.v_min, v_max=args.v_max)
     elif args.stop_signal:

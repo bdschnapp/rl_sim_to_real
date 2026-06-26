@@ -470,6 +470,17 @@ def main() -> None:
         help="Upper velocity bound for --variable-speed eval (default 3.0).",
     )
     parser.add_argument(
+        "--stop-signal", dest="stop_signal", action="store_true",
+        help=(
+            "Evaluate a CONSTANT-SPEED + STOP-SIGNAL policy: 2-D action "
+            "[steer_rate, stop_signal], speed held constant; stop_signal > "
+            "--stop-threshold ends the episode (penalised in no-obstacle envs). "
+            "Mutually exclusive with --variable-speed."
+        ),
+    )
+    parser.add_argument("--stop-threshold", dest="stop_threshold", type=float, default=0.0)
+    parser.add_argument("--stop-penalty", dest="stop_penalty", type=float, default=200.0)
+    parser.add_argument(
         "--e2e-rl-path", dest="e2e_rl_path", default=str(DEFAULT_E2E_RL),
     )
     parser.set_defaults(render=True)
@@ -483,8 +494,16 @@ def main() -> None:
         lane_half_width=args.lane_half_width,
         initial_xd=args.initial_xd,
     )
+    if args.variable_speed and args.stop_signal:
+        parser.error("--variable-speed and --stop-signal are mutually exclusive.")
     if args.variable_speed:
         _apply_variable_speed(e2e_rl_path, v_min=args.v_min, v_max=args.v_max)
+    elif args.stop_signal:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from stop_signal_patch import patch_stop_signal_action
+        patch_stop_signal_action(
+            e2e_rl_path, threshold=args.stop_threshold, stop_penalty=args.stop_penalty,
+        )
     if args.target_speed_bonus > 0.0:
         # Reuse the training-time patch so the eval env's reward exactly
         # matches what v8+ was optimising. Doesn't affect policy actions.
