@@ -66,7 +66,8 @@ def _config_steering_action_deg() -> float:
         return 25.0
 
 
-def _wrap_class(env_cls, *, threshold: float, stop_penalty: float) -> None:
+def _wrap_class(env_cls, *, threshold: float, stop_penalty: float,
+                drive_penalty: float) -> None:
     """Wrap ``__init__`` (widen action_space to 2-D) and ``step`` (stop
     intercept) on a single base lidar env class. Idempotent."""
     import numpy as np
@@ -109,7 +110,18 @@ def _wrap_class(env_cls, *, threshold: float, stop_penalty: float) -> None:
         # Drive normally: delegate to the ORIGINAL step with the full action.
         # The original format_action drops action[1] under fixed_speed=True and
         # uses the constant fixed_speed_command for velocity.
-        return orig_step(self, action)
+        obs, reward, term, trunc, info = orig_step(self, action)
+        # Smooth downward gradient on the stop dim: with `threshold` high enough
+        # that exploration noise rarely fires a hard stop (so episodes survive
+        # and the policy can learn the value of DRIVING), the actor would
+        # otherwise get no signal on the stop dim and its output could drift up
+        # toward the threshold. A small per-step penalty on POSITIVE stop intent
+        # gives a reliable gradient pushing the stop output <= 0 (i.e. "keep
+        # driving"), without terminating the episode. Only bites for stop > 0,
+        # so it never interferes with a confidently-driving (stop < 0) policy.
+        if drive_penalty and stop > 0.0:
+            reward = reward - drive_penalty * stop
+        return obs, reward, term, trunc, info
 
     env_cls.__init__ = stop_signal_init
     env_cls.step = stop_signal_step
@@ -117,8 +129,10 @@ def _wrap_class(env_cls, *, threshold: float, stop_penalty: float) -> None:
 
 def patch_stop_signal_action(
     e2e_rl_path,
-    threshold: float = 0.0,
+    threshold: float = 0.5,
     stop_penalty: float = 200.0,
+    stop_noise: float = 0.1,
+    drive_penalty: float = 0.5,
 ) -> None:
     """Apply the constant-speed + stop-signal action patch to BOTH base lidar
     env classes (forward + reverse).
@@ -128,10 +142,22 @@ def patch_stop_signal_action(
     e2e_rl_path : path-like
         Filesystem path to the e2e_rl checkout (added to ``sys.path``).
     threshold : float
-        ``stop_signal`` above this value triggers a stop (default 0.0).
+        ``stop_signal`` above this value triggers a hard stop (default 0.5).
+        Set well above 0 so that, with a zero-centred tanh stop output and the
+        small ``stop_noise`` below, exploration noise almost never crosses it —
+        episodes then survive to full length and the policy can learn the value
+        of DRIVING. (With the previous threshold=0.0, ~50% of exploration steps
+        crossed it, terminating episodes in ~2 steps, so the policy never
+        experienced a full route and collapsed into a "drive a few steps then
+        stop" local optimum.) The DEPLOY bridge must use the SAME threshold.
     stop_penalty : float
-        Magnitude of the negative reward returned on a stop (default 200.0).
+        Magnitude of the negative reward returned on a hard stop (default 200).
         The returned reward is ``-abs(stop_penalty)``.
+    drive_penalty : float
+        Per-step penalty coefficient on POSITIVE stop intent while driving
+        (reward -= drive_penalty * max(0, stop)). Gives the actor a reliable
+        downward gradient on the stop dim so its output stays <= 0 even though
+        hard stops are rare at the raised threshold. Default 0.5.
     """
     e2e_rl_path = Path(e2e_rl_path)
     if str(e2e_rl_path) not in sys.path:
@@ -144,9 +170,31 @@ def patch_stop_signal_action(
         oa.LidarStateObservationLineFollowingEnv,
         threshold=threshold,
         stop_penalty=stop_penalty,
+        drive_penalty=drive_penalty,
     )
     _wrap_class(
         lf.ReverseLidarStateObservationLineFollowingEnv,
         threshold=threshold,
         stop_penalty=stop_penalty,
+        drive_penalty=drive_penalty,
     )
+
+    # Reduce exploration noise on the stop dimension. make_action_noise_sigma
+    # defaults sigma[1:]=0.5 (sized for variable-speed velocity), which is far
+    # too much for a [-1,1] stop_signal at threshold 0 — exploration would cross
+    # it constantly → near-constant random stops/terminations that destabilise
+    # training. Patch the module function so the stop dim uses `stop_noise`; the
+    # steer dim keeps 0.05. Both trainers call make_action_noise_sigma, so this
+    # covers trailer + tractor-only.
+    import numpy as np
+    import train as e2e_train
+    if not hasattr(e2e_train, "_stop_signal_orig_noise"):
+        e2e_train._stop_signal_orig_noise = e2e_train.make_action_noise_sigma
+
+    def _stop_signal_noise_sigma(n_actions):
+        sigma = np.full(n_actions, 0.05, dtype=np.float32)
+        if n_actions > 1:
+            sigma[1:] = stop_noise
+        return sigma
+
+    e2e_train.make_action_noise_sigma = _stop_signal_noise_sigma

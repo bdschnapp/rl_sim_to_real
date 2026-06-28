@@ -26,12 +26,12 @@
        /control/command/control_cmd from the e2e_rl TD3 policy. Defaults below
        match electrans_rl_bridge.launch.xml so callers that don't override get
        a working setup. -->
-  <arg name="td3_model_path" default="$(env HOME)/Ben/rl_sim_to_real/lab_models_v15/models/forward/lidar_24/multiplicative/best_model.policy.pth"/>
-  <arg name="td3_reverse_model_path" default="$(env HOME)/Ben/rl_sim_to_real/lab_models_v18/models/reverse/lidar_24/multiplicative/best_model.policy.pth"/>
+  <arg name="td3_model_path" default="$(env HOME)/Ben/Thesis/Electrans_project/lab_models_v22/models/forward/lidar_24/multiplicative/best_model.policy.pth"/>
+  <arg name="td3_reverse_model_path" default="$(env HOME)/Ben/Thesis/Electrans_project/lab_models_v22/models/reverse/lidar_24/multiplicative/best_model.policy.pth"/>
   <arg name="e2e_rl_path" default="/home/electrans_robot/Ben/e2e_rl"/>
   <arg name="map_path" default="$(env HOME)/Ben/autoware_map/mvsl"/>
   <arg name="lanelet2_map_file" default="lanelet2_map.osm"/>
-  <arg name="action_space" default="variable_speed"/>
+  <arg name="action_space" default="stop_signal"/>
   <arg name="control_rate_hz" default="10.0"/>
   <arg name="bev_publish_rate_hz" default="4.0"/>
   <arg name="relay_bev_to_rviz_panel" default="false"/>

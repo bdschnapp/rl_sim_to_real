@@ -82,6 +82,13 @@ class ROSLineFollowingAdapter:
         self.env = env_cls(**kwargs)
         self.env_class_name = env_class_name
         self.world_scale = float(world_scale)
+        # Optional env used to build observations in REVERSE mode. The forward
+        # env's get_errors measures heading vs the path FORWARD tangent (no
+        # reverse wrap), so feeding a reversing truck through it yields
+        # e_psi ~ pi and the reverse policy full-locks. set_reverse_env() with
+        # the Reverse* env class (whose get_errors wraps reverse heading to ~0)
+        # fixes this. If unset, reverse falls back to self.env (legacy behaviour).
+        self._reverse_env = None
 
         # The env hardcodes vehicle_params={'lf': 1.2, 'lr': 1.6, ...} inside
         # TractorTrailerEnv.__init__ (not config-driven). That puts the rear
@@ -134,6 +141,19 @@ class ROSLineFollowingAdapter:
         # needs to move when backing up), set v.p = π so the truck's nose
         # in env-local points toward -X (matching training distribution).
         self._is_reverse = False
+        # REVERSE TRACTOR-ONLY obs fidelity. The env-frame transform
+        # (-yaw+pi rotation + Y-flip) produces the FULL MIRROR of the native
+        # build_observation training obs — VERIFIED component-by-component:
+        #   deploy_raw = [-steer, -e_y, -e_psi, -k1, -k2, lidar_REVERSED]
+        #              = mirror( build_observation(...) ).
+        # The policy trained on the un-mirrored (native) obs, so we recover it by
+        # negating the whole 5-D state vector AND reversing the lidar beam order.
+        # (The earlier piecemeal sign flips fixed e_y/e_psi but left k1/k2
+        # sign-flipped and the lidar reversed -> wrong curvature on curves +
+        # wrong left/right lidar -> oscillation/drift.) With this on, the action
+        # is applied DIRECTLY (reverse_steer_rate_sign = +1), matching native.
+        # Live-tunable for A/B.
+        self._reverse_native_obs = True
 
     # ---------------------------------------------------------------- setters
     # All setters store ROS-frame state; get_observation() does a single
@@ -168,6 +188,18 @@ class ROSLineFollowingAdapter:
         _is_reverse in __init__ for the geometric meaning."""
         self._is_reverse = bool(is_reverse)
 
+    def set_reverse_env(self, env):
+        """Register the Reverse* env used to BUILD OBSERVATIONS in reverse mode.
+        Its reverse-aware get_errors wraps the heading error so a correctly
+        reversing truck reads e_psi ~ 0 (the forward env would give ~pi). Patch
+        its vehicle params to match the lab rig, same as the forward env."""
+        self._patch_vehicle_params(env)
+        self._reverse_env = env
+
+    def set_reverse_native_obs(self, enabled: bool):
+        """Toggle the reverse tractor-only full un-mirror (recover native obs)."""
+        self._reverse_native_obs = bool(enabled)
+
     # --------------------------------------------------------------- observ.
     def has_path(self) -> bool:
         return self._path_set
@@ -190,8 +222,12 @@ class ROSLineFollowingAdapter:
         # timer in the bridge), so the 10 Hz control loop pays for just one
         # occupancy-grid build, not the policy + debug envs twice over.
         xs_local, ys_local = self._local_centerline()
-        self._apply_state_to(self.env, xs_local, ys_local)
-        obs = self.env._get_obs()
+        # In reverse, build the obs with the Reverse* env (reverse-aware
+        # get_errors) if one was registered; else fall back to the forward env.
+        env = (self._reverse_env if (self._is_reverse and self._reverse_env is not None)
+               else self.env)
+        self._apply_state_to(env, xs_local, ys_local)
+        obs = env._get_obs()
         # Empirically, the reverse policy needs the β observation in the
         # un-flipped (real-world) sign, while the forward policy needs it
         # in the Y-flipped sign that naturally falls out of the env-frame
@@ -200,11 +236,33 @@ class ROSLineFollowingAdapter:
         # baked in. Until we identify the training-time cause, conditionally
         # negate the β obs only in reverse mode — env geometry (trailer
         # position, lidar mount) stays Y-flipped for both.
-        if self._is_reverse:
+        #
+        # IMPORTANT: obs[1] is β (hitch) ONLY in the TRAILER layout
+        # [s, β, e_y, ...]. The TRACTOR-ONLY layout is [s, e_y, e_ψ, k1, k2]
+        # — obs[1] is the CROSS-TRACK error there, so negating it flips e_y and
+        # makes the reverse tractor-only policy steer away from centre. Skip the
+        # negation entirely for tractor-only models (no hitch term exists).
+        is_tractor_only = "TractorOnly" in self.env_class_name
+        if self._is_reverse and not is_tractor_only:
             if isinstance(obs, np.ndarray):
                 obs[1] = -obs[1]
             elif isinstance(obs, dict) and "vector" in obs:
                 obs["vector"][1] = -obs["vector"][1]
+        # Reverse tractor-only: un-mirror the LATERAL obs back to the native
+        # training convention. Negate obs[1:5] (e_y, e_psi, k1, k2) and reverse
+        # the lidar beam order. obs[0] (steer) is deliberately LEFT as the env's
+        # -measured value: combined with reverse_steer_rate_sign=-1 it already
+        # equals the native steering state (-measured = +∫action), so the
+        # steering-state loop stays consistent. (Negating obs[0] too forces
+        # action sign +1, which inverts the physical turn -> divergence; not
+        # negating k1/k2 leaves the wrong curvature sign on curves -> oscillation;
+        # not reversing the lidar gives wrong left/right when off-centre -> drift.
+        # This combination makes ALL obs components native with the correct turn.)
+        if self._is_reverse and is_tractor_only and self._reverse_native_obs:
+            vec = obs if isinstance(obs, np.ndarray) else obs.get("vector")
+            if vec is not None:
+                vec[1:5] *= -1.0
+                vec[5:] = vec[5:][::-1]
         return obs
 
     def _local_centerline(self):

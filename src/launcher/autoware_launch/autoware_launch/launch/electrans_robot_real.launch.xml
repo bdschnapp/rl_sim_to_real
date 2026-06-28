@@ -31,13 +31,28 @@
   <!-- No desktop on the Jetson: default RViz off, use foxglove_bridge instead. -->
   <arg name="rviz" default="false" description="launch rviz"/>
 
+  <!-- Trailer attached? Single switch for all trailer-only subsystems:
+         * lidar hitch-angle estimator + trailer self-filter (sensing chain,
+           gated via the ELECTRANS_TRAILER env var set below — see
+           robosense_Helios.launch.xml),
+         * the trailer mesh visualizer (added below).
+       false (default) = trailer PHYSICALLY DETACHED: estimator/self-filter off
+       (frees the Jetson), bridge pins hitch β=0 internally, no trailer drawn —
+       this is the current working real-robot config. true = trailer attached. -->
+  <arg name="trailer" default="false" description="trailer attached: enable hitch estimator + self-filter + trailer visualizer"/>
+  <!-- Propagate to the deep sensing leaf (robosense_Helios.launch.xml) without
+       threading an arg through 6 include levels. start_robot.sh also exports
+       this directly, so it works whether launched via the script or via
+       `ros2 launch ... trailer:=true`. -->
+  <set_env name="ELECTRANS_TRAILER" value="$(var trailer)"/>
+
   <!-- RL bridge (electrans_rl_bridge) parameters. With control:=true (default) the
        control component includes electrans_rl_bridge.launch.xml, so these must point
        at the e2e_rl tree + TD3 models on THIS machine (the Jetson). -->
   <arg name="e2e_rl_path" default="/home/electrans_robot/Ben/e2e_rl" description="e2e_rl source tree on this machine"/>
-  <arg name="td3_model_path" default="$(env HOME)/Ben/rl_sim_to_real/lab_models_v15/models/forward/lidar_24/multiplicative/best_model.policy.pth" description="forward TD3 policy .pth"/>
-  <arg name="td3_reverse_model_path" default="$(env HOME)/Ben/rl_sim_to_real/lab_models_v18/models/reverse/lidar_24/multiplicative/best_model.policy.pth" description="reverse TD3 policy .pth"/>
-  <arg name="action_space" default="variable_speed" description="fixed_speed | variable_speed"/>
+  <arg name="td3_model_path" default="$(env HOME)/Ben/Thesis/Electrans_project/lab_models_v22/models/forward/lidar_24/multiplicative/best_model.policy.pth" description="forward TD3 policy .pth"/>
+  <arg name="td3_reverse_model_path" default="$(env HOME)/Ben/Thesis/Electrans_project/lab_models_v22/models/reverse/lidar_24/multiplicative/best_model.policy.pth" description="reverse TD3 policy .pth"/>
+  <arg name="action_space" default="stop_signal" description="fixed_speed | variable_speed"/>
   <arg name="control_rate_hz" default="10.0" description="RL control loop rate"/>
   <arg name="bev_publish_rate_hz" default="4.0" description="debug BEV render/publish rate; 0 disables"/>
   <!-- Relay the BEV image onto the RViz RecognitionResultOnImage panel topic so
@@ -91,5 +106,16 @@
       <arg name="rviz" value="$(var rviz)"/>
       <arg name="rviz_respawn" value="false"/>
     </include>
+  </group>
+
+  <!-- Trailer mesh visualizer (real robot). In sim this comes from
+       tier4_simulator_component; the real-robot launch graph never included it,
+       which is why the trailer wasn't drawn. It renders the trailer + hitch as
+       a MarkerArray on /visualization/trailer_state from the real hitch
+       estimator's /vehicle/trailer_state and /localization/kinematic_state.
+       Geometry defaults to electrans_robot_vehicle_description's
+       simulator_model.param.yaml (same file the sim uses → identical shape). -->
+  <group if="$(var trailer)">
+    <include file="$(find-pkg-share autoware_trailer_state_visualizer)/launch/trailer_state_visualizer.launch.py"/>
   </group>
 </launch>

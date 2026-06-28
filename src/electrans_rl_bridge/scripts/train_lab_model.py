@@ -73,6 +73,16 @@ def _apply_lab_config_overrides(e2e_rl_path: Path) -> None:
     c.lane_centerline_half_width_m = 1.41
     c.lane_shoulder_m = 0.20
 
+    # NOTE on world size: we keep the e2e_rl default 150x90 m canvas (do NOT
+    # shrink to the lab's 25x20 m — see the y≈45 hardcode warning above). At
+    # deploy speed (~0.5-0.8 m/s) the truck won't reach the 0.85*W success line
+    # in a 1000-step episode, so episodes TRUNCATE without the sparse goal bonus.
+    # That is fine: bends are defined in METERS (curvature is identical at any
+    # canvas size) so mild-path curvature already matches the lab, and the proven
+    # baseline learned almost entirely from the per-step tracking reward, not the
+    # goal bonus. Truncation carries no terminal penalty, so it does not poison
+    # the value function.
+
     # Tractor wheelbase + CG split. Keep the rest of the dict (mass, inertia,
     # tire stiffness, dt) at training-default values — the AgileX is much
     # lighter but the env's TD3 trains a kinematic-dominant controller; the
@@ -84,7 +94,7 @@ def _apply_lab_config_overrides(e2e_rl_path: Path) -> None:
     )
 
 
-def _patch_path_generator(e2e_rl_path: Path) -> None:
+def _patch_path_generator(e2e_rl_path: Path, mild_only: bool = False) -> None:
     """Replace LineFollowingEnv.generate_path with a mixture distribution
     that exposes the policy to lab-corner-scale tangent changes during
     training.
@@ -141,7 +151,12 @@ def _patch_path_generator(e2e_rl_path: Path) -> None:
         # make the budget add up.
         mode = self.np_random.choice(
             ["straight", "gentle", "sharp", "winding", "lab_seam", "lab_corner"],
-            p=[0.18, 0.12, 0.15, 0.18, 0.12, 0.25],
+            # mild_only (baseline isolation): straight + gentle only, no hard
+            # paths (sharp/winding/lab_seam/lab_corner). The default mix is 70%
+            # hard, which is the suspected regression vs the proven gentle-only
+            # training.
+            p=([0.5, 0.5, 0.0, 0.0, 0.0, 0.0] if mild_only
+               else [0.18, 0.12, 0.15, 0.18, 0.12, 0.25]),
         )
         # Recorded so the velocity-randomisation reset patch (see
         # _patch_velocity_randomisation) can pick a speed appropriate for
@@ -411,7 +426,7 @@ def _config_steering_action(env_self) -> float:
         return 25.0
 
 
-def _patch_velocity_randomisation(e2e_rl_path: Path) -> None:
+def _patch_velocity_randomisation(e2e_rl_path: Path, speed_min=None, speed_max=None) -> None:
     """Override LaneDrivingEnv.reset (forward) and
     ReverseStateObservationLineFollowingEnv.reset (reverse) so that each
     episode's initial speed is sampled from a path-kind-specific range
@@ -428,6 +443,10 @@ def _patch_velocity_randomisation(e2e_rl_path: Path) -> None:
     import Environments.LineFollowing as lf
 
     def _sample_speed(self) -> float:
+        # Explicit override (deploy-speed training): use [speed_min, speed_max]
+        # for ALL path kinds, ignoring the per-kind defaults.
+        if speed_min is not None and speed_max is not None:
+            return float(self.np_random.uniform(speed_min, speed_max))
         kind = getattr(self, "_path_kind", "gentle")
         low, high = _VELOCITY_BOUNDS_BY_PATH_KIND.get(kind, (1.0, 5.0))
         return float(self.np_random.uniform(low, high))
@@ -895,6 +914,22 @@ def main() -> None:
         help="forward or reverse lane-following.",
     )
     parser.add_argument(
+        "--mild-paths", dest="mild_paths", action="store_true",
+        help="Baseline isolation: train ONLY on straight+gentle paths (no "
+             "sharp/winding/lab_corner). Use to re-establish a known-good "
+             "baseline before adding hard paths back incrementally.",
+    )
+    parser.add_argument(
+        "--speed-min", dest="speed_min", type=float, default=None,
+        help="Min per-episode speed (m/s). With --speed-max, overrides the "
+             "per-path-kind velocity randomisation for ALL kinds. Use ~0.5 to "
+             "train at deployment speed (pair with the lab-scale world).",
+    )
+    parser.add_argument(
+        "--speed-max", dest="speed_max", type=float, default=None,
+        help="Max per-episode speed (m/s). See --speed-min (use ~0.8).",
+    )
+    parser.add_argument(
         "--timesteps", type=int, default=200_000,
         help="Total environment steps (default: 200_000).",
     )
@@ -954,12 +989,19 @@ def main() -> None:
         ),
     )
     parser.add_argument(
-        "--stop-threshold", dest="stop_threshold", type=float, default=0.0,
-        help="stop_signal above this triggers a stop (default: 0.0).",
+        "--stop-threshold", dest="stop_threshold", type=float, default=0.5,
+        help="stop_signal above this triggers a stop (default: 0.5; raised "
+             "from 0 so exploration episodes survive — see stop_signal_patch). "
+             "The deploy bridge must use the same value.",
     )
     parser.add_argument(
         "--stop-penalty", dest="stop_penalty", type=float, default=200.0,
         help="Magnitude of the negative reward on a stop (default: 200.0).",
+    )
+    parser.add_argument(
+        "--stop-noise", dest="stop_noise", type=float, default=0.1,
+        help="Exploration noise sigma on the stop_signal action dim "
+             "(default 0.1; the variable-speed default 0.5 over-explores stops).",
     )
     parser.add_argument(
         "--v-min", dest="v_min", type=float, default=0.5,
@@ -1058,7 +1100,7 @@ def main() -> None:
 
     _apply_lab_config_overrides(e2e_rl_path)
     _patch_env_vehicle_params(e2e_rl_path)
-    _patch_path_generator(e2e_rl_path)
+    _patch_path_generator(e2e_rl_path, mild_only=args.mild_paths)
     # NO actuator-lag patch — training is DELAY-FREE by design. Actuator latency
     # is a sim-to-real problem compensated at DEPLOY time by the Smith Predictor,
     # never learned in the env. (_patch_actuator_lag is intentionally left
@@ -1075,10 +1117,11 @@ def main() -> None:
             e2e_rl_path,
             threshold=args.stop_threshold,
             stop_penalty=args.stop_penalty,
+            stop_noise=args.stop_noise,
         )
     # Per-episode velocity randomisation guards on self.fixed_speed
     # internally, so it's a no-op when variable_speed is on.
-    _patch_velocity_randomisation(e2e_rl_path)
+    _patch_velocity_randomisation(e2e_rl_path, speed_min=args.speed_min, speed_max=args.speed_max)
     if args.curvature_speed_weight > 0.0:
         _patch_curvature_speed_penalty(
             e2e_rl_path,

@@ -12,13 +12,18 @@
 
   <!-- electrans_rl_bridge knobs. Defaults match
        tier4_control_component.launch.xml / electrans_rl_bridge.launch.xml. -->
-  <arg name="td3_model_path" default="$(env HOME)/Ben/rl_sim_to_real/lab_models_v15/models/forward/lidar_24/multiplicative/best_model.policy.pth"/>
-  <arg name="td3_reverse_model_path" default="$(env HOME)/Ben/rl_sim_to_real/lab_models_v18/models/reverse/lidar_24/multiplicative/best_model.policy.pth"/>
+  <arg name="td3_model_path" default="$(env HOME)/Ben/Thesis/Electrans_project/lab_models_ttrl_deploy/forward_trailer/best_model.policy.pth"/>
+  <arg name="td3_reverse_model_path" default="$(env HOME)/Ben/Thesis/Electrans_project/lab_models_ttrl_deploy/reverse_trailer/best_model.policy.pth"/>
   <arg name="e2e_rl_path" default="/home/ben/Ben/Thesis/e2e_rl"/>
-  <arg name="action_space" default="variable_speed"/>
+  <arg name="action_space" default="stop_signal"/>
   <arg name="control_rate_hz" default="10.0"/>
   <arg name="default_velocity_mps" default="0.6"/>
   <arg name="forward_horizon_m" default="50.0"/>
+  <!-- Relay the debug BEV (/rl_bridge/bev_image) onto the RViz
+       RecognitionResultOnImage panel topic. Default true in sim (no real
+       traffic-light recognition competes for that topic here), so the BEV
+       shows up in autoware.rviz without adding a display. -->
+  <arg name="relay_bev_to_rviz_panel" default="true"/>
   <arg name="centerline_resolution_m" default="0.5"/>
   <arg name="world_scale" default="1.0"/>
 
@@ -40,7 +45,13 @@
   <arg name="perception/use_base_link_z" default="true" description="dummy perception uses base_link z axis coordinate if it is true"/>
   <arg name="sensing/visible_range" default="300.0" description="visible range when using dummy perception"/>
   <arg name="scenario_simulation" default="false" description="use scenario simulation"/>
-  <arg name="launch_trailer_state_visualizer" default="true" description="launch truck-trailer mesh visualization"/>
+  <!-- Trailer attached? In sim this gates the trailer mesh visualizer. (The
+       sim vehicle model still simulates a trailer; trailer:=false just hides
+       the mesh.) Mirrors the real launch's `trailer` flag so the single entry
+       point script drives both with one switch. -->
+  <arg name="trailer" default="true" description="trailer attached: render trailer mesh"/>
+  <set_env name="ELECTRANS_TRAILER" value="$(var trailer)"/>
+  <arg name="launch_trailer_state_visualizer" default="$(var trailer)" description="launch truck-trailer mesh visualization"/>
   <!-- Tools -->
   <arg name="rviz" default="true" description="launch rviz"/>
   <arg name="rviz_config_name" default="autoware.rviz" description="rviz config name"/>
@@ -105,6 +116,7 @@
       <arg name="forward_horizon_m" value="$(var forward_horizon_m)"/>
       <arg name="centerline_resolution_m" value="$(var centerline_resolution_m)"/>
       <arg name="world_scale" value="$(var world_scale)"/>
+      <arg name="relay_bev_to_rviz_panel" value="$(var relay_bev_to_rviz_panel)"/>
     </include>
   </group>
 

@@ -3,8 +3,20 @@
   <!-- Where the e2e_rl source tree is mounted/installed. The two nodes add this
        to sys.path so they can import Environments / Models / e2erl_utils. -->
   <arg name="e2e_rl_path" default="/home/electrans_robot/Ben/e2e_rl"/>
-  <arg name="td3_model_path" default="$(env HOME)/Ben/rl_sim_to_real/lab_models_v15/models/forward/lidar_24/multiplicative/best_model.policy.pth"/>
-  <arg name="td3_reverse_model_path" default="$(env HOME)/Ben/rl_sim_to_real/lab_models_v18/models/reverse/lidar_24/multiplicative/best_model.policy.pth"/>
+  <arg name="td3_model_path" default="$(env HOME)/Ben/Thesis/Electrans_project/lab_models_v22/models/forward/lidar_24/multiplicative/best_model.policy.pth"/>
+  <arg name="td3_reverse_model_path" default="$(env HOME)/Ben/Thesis/Electrans_project/lab_models_v22/models/reverse/lidar_24/multiplicative/best_model.policy.pth"/>
+
+  <!-- Trailer attached? trailer:=false loads the tractor-only model pair (29-D
+       obs, 5-dim state); trailer:=true loads the trailer pair above (32-D).
+       Default reads the ELECTRANS_TRAILER env var, which start_robot.sh exports
+       and the top launch files <set_env>, so this one flag flows all the way
+       down without being threaded through every intermediate launch file. -->
+  <arg name="trailer" default="$(env ELECTRANS_TRAILER false)"/>
+  <!-- Tractor-only checkpoints (used when trailer:=false). Must be exported
+       with re_export_td3.py in tractor-only mode so their .policy_kwargs.pkl
+       meta records the Environments.TractorOnly env class. -->
+  <arg name="td3_model_path_tractor_only" default="$(env HOME)/Ben/Thesis/Electrans_project/lab_models_ttrl_deploy/forward_tractor_only/best_model.policy.pth"/>
+  <arg name="td3_reverse_model_path_tractor_only" default="$(env HOME)/Ben/Thesis/Electrans_project/lab_models_ttrl_deploy/reverse_tractor_only/best_model.policy.pth"/>
 
   <!-- Lanelet2 map: must match what autoware_map_loader was given. The MVSL lab
        map is a Local-projection map (lat="" lon="" + local_x/local_y tags);
@@ -13,7 +25,12 @@
   <arg name="lanelet2_map_file" default="lanelet2_map.osm"/>
 
   <!-- Bridge knobs -->
-  <arg name="action_space" default="variable_speed"/>            <!-- fixed_speed | variable_speed -->
+  <arg name="action_space" default="stop_signal"/>            <!-- fixed_speed | variable_speed | stop_signal -->
+  <!-- stop_signal mode: action[1] > stop_threshold ⇒ command zero speed. The
+       policy LEARNS when to stop; the bridge just listens. MUST match the
+       training default (0.5 — raised from 0 so exploration episodes survive;
+       see stop_signal_patch.py). -->
+  <arg name="stop_threshold" default="0.8"/>
   <arg name="control_rate_hz" default="10.0"/>
   <arg name="bev_publish_rate_hz" default="4.0"/>               <!-- debug BEV render rate; 0 disables -->
 
@@ -51,9 +68,13 @@
 
   <node pkg="electrans_rl_bridge" exec="rl_bridge_node" name="rl_bridge_node" output="screen">
     <param name="e2e_rl_path" value="$(var e2e_rl_path)"/>
+    <param name="trailer" value="$(var trailer)"/>
     <param name="td3_model_path" value="$(var td3_model_path)"/>
     <param name="td3_reverse_model_path" value="$(var td3_reverse_model_path)"/>
+    <param name="td3_model_path_tractor_only" value="$(var td3_model_path_tractor_only)"/>
+    <param name="td3_reverse_model_path_tractor_only" value="$(var td3_reverse_model_path_tractor_only)"/>
     <param name="action_space" value="$(var action_space)"/>
+    <param name="stop_threshold" value="$(var stop_threshold)"/>
     <param name="control_rate_hz" value="$(var control_rate_hz)"/>
     <param name="bev_publish_rate_hz" value="$(var bev_publish_rate_hz)"/>
     <param name="default_velocity_mps" value="$(var default_velocity_mps)"/>

@@ -64,7 +64,32 @@ class RLBridgeNode(Node):
         # If set, the bridge loads BOTH policies at startup and picks each
         # tick based on the drive_direction topic.
         self.declare_parameter("td3_reverse_model_path", "")
-        self.declare_parameter("action_space", "fixed_speed")  # or 'variable_speed'
+        # Trailer attached? Selects which model PAIR the bridge loads and, with
+        # it, the observation space — the tractor-only models were trained
+        # against the TractorOnly env (5-dim state, 29-D lidar_24 obs) while the
+        # trailer models use the 8-dim state (32-D). The obs space itself is
+        # read from each checkpoint's .policy_kwargs.pkl meta (env_class_*), so
+        # all this flag does is pick the right pair of checkpoints + assert the
+        # loaded model actually matches (guards against a trailer model being
+        # deployed with trailer:=false and vice-versa). Default true = trailer
+        # models (back-compat with existing deployments).
+        self.declare_parameter("trailer", True)
+        # Tractor-only checkpoints, used when trailer:=false. Separate params so
+        # both pairs can be configured once and switched by the flag alone.
+        self.declare_parameter("td3_model_path_tractor_only", "")
+        self.declare_parameter("td3_reverse_model_path_tractor_only", "")
+        # action_space:
+        #   fixed_speed    → 1-D action [steer_rate]; constant velocity.
+        #   variable_speed → 2-D action [steer_rate, velocity].
+        #   stop_signal    → 2-D action [steer_rate, stop_signal]; constant
+        #                    velocity, but the policy can decide to STOP via the
+        #                    second dim (the bridge zeroes velocity when it
+        #                    exceeds stop_threshold). The stop is LEARNED by the
+        #                    model — the bridge just listens for it.
+        self.declare_parameter("action_space", "fixed_speed")
+        # stop_signal threshold: action[1] > this ⇒ STOP (velocity → 0). Matches
+        # the training-time default (stop_signal_patch threshold 0.0).
+        self.declare_parameter("stop_threshold", 0.5)
         self.declare_parameter("control_rate_hz", 10.0)
         # The debug BEV image (/rl_bridge/bev_image, relayed into RViz) is for
         # human verification, not control, so it renders on its own slower
@@ -106,7 +131,39 @@ class RLBridgeNode(Node):
         # (pass through). alpha=0.3 = each tick is 30% new + 70% previous,
         # giving ~3-tick effective averaging. Forward driving is left
         # unfiltered.
-        self.declare_parameter("reverse_steer_rate_ema_alpha", 0.3)
+        # EMA: 1.0 = OFF. The 0.3 lag was tuned for the OLD v22 models' 5 Hz
+        # bang-bang output; the new lab models steer smoothly, and 0.3 s of
+        # steering lag destabilises the (non-minimum-phase) reverse loop. Default
+        # OFF for the new models; raise toward 0.3 only if oscillation appears.
+        self.declare_parameter("reverse_steer_rate_ema_alpha", 1.0)
+        # Sign of the reverse steering-rate command. MUST be -1.0. The adapter
+        # leaves obs[0]=-measured_steering (mirrored); with -1.0 the steering
+        # integrates ∫(-action)dt, so obs[0]=-measured=+∫action = the native
+        # steering state, AND the physical turn direction matches what the
+        # policy intends for the un-mirrored lateral obs. (+1.0 inverts the turn
+        # -> divergence.) Pairs with reverse_native_obs=True.
+        self.declare_parameter("reverse_steer_rate_sign", -1.0)
+        # Reverse kinematic steer-rate down-scaling (scale = v_clamped/v_intent).
+        # STALE: it assumes the policy trained at v in [-3,-0.5] m/s (old semi-
+        # truck v22 models) and over-steers at the clamped lab speed. The new lab
+        # models trained at ~0.5-0.8 m/s, so this just robs steering authority.
+        # Default OFF for the new models.
+        self.declare_parameter("reverse_kinematic_scaling", False)
+        # Lateral-obs sign for REVERSE TRACTOR-ONLY (multiplies e_y AND e_psi).
+        # MUST be -1.0. The reverse env-frame transform (-yaw+pi rotation + Y-flip)
+        # inverts the lateral error sign vs the policy's training convention, giving
+        # a positive-feedback lateral loop: with +1.0 the truck reverses straight
+        # briefly then veers off and wanders in big arcs (sim 2026-06-28). -1.0
+        # closes the loop: it reverses in a near-straight line and reaches the goal
+        # (drive disengages within ~2 m). NOTE: a small residual lateral drift
+        # (~0.9 m over ~3 m) remains under -1.0 — stable, reaches goal; refine
+        # later (possibly e_psi wants separate handling). This is the SECOND half
+        # of the reverse fix; the first is reverse_steer_rate_sign=-1. Live-tunable.
+        # Recover the native training obs for REVERSE TRACTOR-ONLY by fully
+        # un-mirroring the env-frame obs (negate the 5-D state + reverse lidar).
+        # Verified deploy==native build_observation. Fixes curvature sign + lidar
+        # order that the piecemeal e_y/e_psi flips left wrong. Live-tunable.
+        self.declare_parameter("reverse_native_obs", True)
 
         # Smith Predictor: predictor-feedback shim that lets a delay-free-
         # trained policy (e.g. v15) deploy on a delayed sim/robot. When
@@ -122,9 +179,22 @@ class RLBridgeNode(Node):
         self.declare_parameter("smith_delay_steps", 2)
 
         self.e2e_rl_path = str(self.get_parameter("e2e_rl_path").value)
-        self.model_path = str(self.get_parameter("td3_model_path").value)
-        self.reverse_model_path = str(self.get_parameter("td3_reverse_model_path").value)
+        self.trailer = bool(self.get_parameter("trailer").value)
+        # Pick the active model pair from the trailer flag. trailer:=false → the
+        # tractor-only checkpoints (29-D obs); trailer:=true → the trailer
+        # checkpoints (32-D obs). The obs space follows from the chosen model's
+        # meta in _load_model; the post-load guard asserts they agree.
+        if self.trailer:
+            self.model_path = str(self.get_parameter("td3_model_path").value)
+            self.reverse_model_path = str(self.get_parameter("td3_reverse_model_path").value)
+        else:
+            self.model_path = str(self.get_parameter("td3_model_path_tractor_only").value)
+            self.reverse_model_path = str(
+                self.get_parameter("td3_reverse_model_path_tractor_only").value
+            )
         self.action_space = str(self.get_parameter("action_space").value)
+        self.stop_threshold = float(self.get_parameter("stop_threshold").value)
+        self._stop_active = False   # True while the policy is commanding a stop
         self.control_rate_hz = float(self.get_parameter("control_rate_hz").value)
         self.bev_publish_rate_hz = float(self.get_parameter("bev_publish_rate_hz").value)
         self.max_steering = float(self.get_parameter("max_steering_rad").value)
@@ -135,6 +205,9 @@ class RLBridgeNode(Node):
         self.bridge_v_max_reverse = float(self.get_parameter("bridge_velocity_max_reverse").value)
         self.reverse_steer_rate_gain = float(self.get_parameter("reverse_steer_rate_gain").value)
         self.reverse_steer_rate_ema_alpha = float(self.get_parameter("reverse_steer_rate_ema_alpha").value)
+        self.reverse_steer_rate_sign = float(self.get_parameter("reverse_steer_rate_sign").value)
+        self.reverse_kinematic_scaling = bool(self.get_parameter("reverse_kinematic_scaling").value)
+        self.reverse_native_obs = bool(self.get_parameter("reverse_native_obs").value)
         self._reverse_steer_rate_ema = 0.0
         self.use_smith_predictor = bool(self.get_parameter("use_smith_predictor").value)
         self.smith_steer_tau = float(self.get_parameter("smith_steer_tau").value)
@@ -144,7 +217,13 @@ class RLBridgeNode(Node):
         self._last_kine_scale = 1.0
 
         if not self.model_path:
-            raise RuntimeError("rl_bridge_node: td3_model_path parameter is required")
+            which = "td3_model_path" if self.trailer else "td3_model_path_tractor_only"
+            raise RuntimeError(
+                f"rl_bridge_node: {which} parameter is required "
+                f"(trailer={self.trailer}). With trailer:=false the tractor-only "
+                f"checkpoints must be exported first "
+                f"(re_export_td3.py --tractor-only)."
+            )
 
         # ----- import e2e_rl + load model -----
         install_e2e_rl_on_path(self.e2e_rl_path)
@@ -239,8 +318,32 @@ class RLBridgeNode(Node):
         # Old checkpoints that don't carry this metadata fall back to BEV.
         env_class_module = meta.get("env_class_module", "Environments.LineFollowing")
         env_class_name = meta.get("env_class_name", "BevObservationLineFollowingEnv")
+
+        # Guard: the loaded checkpoint's env class must agree with the trailer
+        # flag. A TractorOnly model fed 32-D trailer obs (or a trailer model fed
+        # 29-D tractor obs) silently produces garbage actions, so fail loudly at
+        # startup instead. env_class_module is "Environments.TractorOnly" for
+        # tractor-only checkpoints.
+        is_tractor_only_model = "TractorOnly" in env_class_module
+        if self.trailer and is_tractor_only_model:
+            raise RuntimeError(
+                f"trailer:=true but the forward checkpoint ({self.model_path}) is "
+                f"a TractorOnly model ({env_class_module}.{env_class_name}). Set "
+                f"trailer:=false or point td3_model_path at a trailer model."
+            )
+        if not self.trailer and not is_tractor_only_model:
+            raise RuntimeError(
+                f"trailer:=false but the forward checkpoint ({self.model_path}) is "
+                f"NOT a tractor-only model ({env_class_module}.{env_class_name}). "
+                f"Re-export it with re_export_td3.py --tractor-only, or set "
+                f"trailer:=true."
+            )
+
         env_kwargs = dict(meta.get("env_kwargs", {}))
-        env_kwargs.setdefault("fixed_speed", self.action_space == "fixed_speed")
+        # Constant speed for both fixed_speed AND stop_signal (the env's velocity
+        # handling is unused at deploy anyway — the env is never stepped, only
+        # its action/obs spaces are read — but keep the semantics honest).
+        env_kwargs.setdefault("fixed_speed", self.action_space != "variable_speed")
         self.get_logger().info(
             f"Instantiating env {env_class_module}.{env_class_name} kwargs={env_kwargs}"
         )
@@ -250,6 +353,20 @@ class RLBridgeNode(Node):
             env_kwargs=env_kwargs,
             world_scale=self.world_scale,
         )
+        self.adapter.set_reverse_native_obs(self.reverse_native_obs)
+
+        # Stop-signal action mode: override the env's action_space to 2-D
+        # [steer_rate, stop_signal], stop_signal ∈ [-1, 1]. Set directly on the
+        # instance (not via an __init__ monkey-patch) so it works for every env
+        # class including the TractorOnly subclasses. TD3 is built against this
+        # space below, and predict() CLIPS the stop output to these bounds — so
+        # they must be [-1,1], not a velocity range.
+        if self.action_space == "stop_signal":
+            self.adapter.env.action_space = self._stop_signal_action_space()
+            self.get_logger().info(
+                f"stop_signal mode: forward action_space → {self.adapter.env.action_space} "
+                f"(stop when action[1] > {self.stop_threshold})"
+            )
 
         # Smith Predictor: instantiate AFTER adapter so the e2e_rl path is
         # on sys.path (adapter does that). The predictor's shadow vehicle
@@ -290,6 +407,20 @@ class RLBridgeNode(Node):
             device="auto",
         )
         state_dict = torch.load(self.model_path, map_location=self.model.device)
+        # Clear error if the checkpoint's action dim disagrees with action_space
+        # (otherwise load_state_dict throws a cryptic "size mismatch for
+        # actor.mu.4.weight"). stop_signal + variable_speed need a 2-D actor;
+        # fixed_speed needs 1-D. MODE=fixed training produces 1-D models.
+        fwd_action_dim = int(state_dict["actor.mu.4.weight"].shape[0])
+        expected_dim = 1 if self.action_space == "fixed_speed" else 2
+        if fwd_action_dim != expected_dim:
+            raise RuntimeError(
+                f"action_space='{self.action_space}' expects a {expected_dim}-D "
+                f"actor but the forward checkpoint {self.model_path} is "
+                f"{fwd_action_dim}-D. For stop_signal you need models trained "
+                f"with MODE=stop_signal; a MODE=fixed model is 1-D — either "
+                f"retrain, or launch with action_space:=fixed_speed."
+            )
         self.model.policy.load_state_dict(state_dict)
 
         # Optional reverse policy. If the path is provided AND the file
@@ -316,10 +447,11 @@ class RLBridgeNode(Node):
                 f"Reverse checkpoint action_dim = {rev_action_dim} "
                 f"({'variable-speed' if rev_action_dim == 2 else 'fixed-speed'})"
             )
-            if rev_action_dim == 2:
+            if rev_action_dim == 2 and self.action_space == "variable_speed":
                 # Patch the reverse env class to variable-speed bounds
                 # matching forward training (must agree with how the
-                # reverse model was trained).
+                # reverse model was trained). Skipped for stop_signal — that
+                # mode overrides the reverse env's action_space directly below.
                 self._patch_reverse_env_variable_speed(v_min=0.5, v_max=3.0)
 
             # Build a SEPARATE env for the reverse policy. Its action_space
@@ -345,6 +477,15 @@ class RLBridgeNode(Node):
                 k: v for k, v in rev_init_kwargs.items() if k in rev_sig.parameters
             }
             reverse_env = rev_env_cls(**rev_init_kwargs)
+            if self.action_space == "stop_signal":
+                reverse_env.action_space = self._stop_signal_action_space()
+
+            # CRITICAL: build reverse-mode OBSERVATIONS with this Reverse* env.
+            # Its get_errors wraps reverse heading to ~0; the forward adapter env
+            # would give e_psi ~ pi and full-lock the reverse policy. Previously
+            # this env was only used to size the TD3 and obs came from the
+            # forward env — the reverse wall-slam bug.
+            self.adapter.set_reverse_env(reverse_env)
 
             self.get_logger().info(
                 f"Loading reverse TD3 policy state from {self.reverse_model_path} "
@@ -413,6 +554,16 @@ class RLBridgeNode(Node):
                 elif p.name == "reverse_steer_rate_ema_alpha":
                     self.reverse_steer_rate_ema_alpha = float(p.value)
                     self.get_logger().info(f"reverse_steer_rate_ema_alpha -> {self.reverse_steer_rate_ema_alpha}")
+                elif p.name == "reverse_steer_rate_sign":
+                    self.reverse_steer_rate_sign = float(p.value)
+                    self.get_logger().info(f"reverse_steer_rate_sign -> {self.reverse_steer_rate_sign}")
+                elif p.name == "reverse_kinematic_scaling":
+                    self.reverse_kinematic_scaling = bool(p.value)
+                    self.get_logger().info(f"reverse_kinematic_scaling -> {self.reverse_kinematic_scaling}")
+                elif p.name == "reverse_native_obs":
+                    self.reverse_native_obs = bool(p.value)
+                    self.adapter.set_reverse_native_obs(self.reverse_native_obs)
+                    self.get_logger().info(f"reverse_native_obs -> {self.reverse_native_obs}")
             return SetParametersResult(successful=True)
         self.add_on_set_parameters_callback(_on_set_params)
 
@@ -514,6 +665,28 @@ class RLBridgeNode(Node):
             )
 
         lf.ReverseLidarStateObservationLineFollowingEnv.__init__ = reverse_init
+
+    def _stop_signal_action_space(self):
+        """2-D action space [steer_rate, stop_signal] for constant-speed +
+        learned-stop policies. stop_signal ∈ [-1, 1]; at deploy, action[1] >
+        stop_threshold ⇒ STOP. Identical for forward and reverse (the stop dim
+        is direction-agnostic) and for trailer vs tractor-only (action space is
+        independent of the obs space). The [-1,1] bound is essential: TD3.predict
+        clips the action to it, so a velocity-style bound would corrupt the stop
+        signal."""
+        import numpy as np
+        from gymnasium import spaces
+        try:
+            from e2erl_utils import config as c
+            steering_deg = float(c.steering_action)
+        except Exception:
+            steering_deg = 25.0
+        max_steer_rate = np.deg2rad(steering_deg)
+        return spaces.Box(
+            low=np.array([-max_steer_rate, -1.0], dtype=np.float32),
+            high=np.array([max_steer_rate, 1.0], dtype=np.float32),
+            dtype=np.float32,
+        )
 
     # --------------------------------------------------------------- inputs
     def _on_odom(self, msg: Odometry):
@@ -624,7 +797,13 @@ class RLBridgeNode(Node):
         # in ros_env_adapter (centerline ys_local, v.s, β). The policy's
         # output is in that mirrored frame, so we negate the steering rate
         # to un-mirror it before commanding the real (un-flipped) vehicle.
-        steering_rate = -float(action[0])
+        # FORWARD: -action[0] (works). REVERSE adds an extra +pi rotation on
+        # top of the Y-flip (double-flip) → opposite handedness, so reverse
+        # uses reverse_steer_rate_sign (default +1.0 = +action[0]). Live-tunable.
+        if is_reverse:
+            steering_rate = self.reverse_steer_rate_sign * float(action[0])
+        else:
+            steering_rate = -float(action[0])
 
         # Remember the just-chosen action so next tick's dual-shadow
         # `step_and_predict` can use it as the action that's currently
@@ -639,6 +818,22 @@ class RLBridgeNode(Node):
             velocity_cmd = float(action[1])
         else:
             velocity_cmd = -self.default_velocity if is_reverse else self.default_velocity
+            # stop_signal mode: the policy's 2nd action dim is a LEARNED stop
+            # decision. Above the threshold ⇒ command zero speed. The model owns
+            # the decision (trained to stop only when it should); the bridge just
+            # listens and zeroes velocity. Steering still tracks so the wheels
+            # hold their angle while stopped.
+            if self.action_space == "stop_signal" and action.size >= 2:
+                stop_signal = float(action[1])
+                stop_now = stop_signal > self.stop_threshold
+                if stop_now != self._stop_active:
+                    self.get_logger().info(
+                        f"stop_signal {'ENGAGED' if stop_now else 'released'} "
+                        f"(action[1]={stop_signal:.3f} vs thr {self.stop_threshold})"
+                    )
+                self._stop_active = stop_now
+                if stop_now:
+                    velocity_cmd = 0.0
 
         # When the Smith Predictor is on, the policy sees a delay-free
         # virtual env and its commanded rate is already calibrated for
@@ -657,7 +852,8 @@ class RLBridgeNode(Node):
             # a far tighter geometric turn than the policy intended. Scaling
             # steer_rate by |v_clamped|/|v_policy_intent| preserves the
             # steer-per-meter relationship.
-            if is_reverse and abs(velocity_cmd) > 1e-3:
+            if (self.reverse_kinematic_scaling and is_reverse
+                    and abs(velocity_cmd) > 1e-3):
                 v_intent = abs(velocity_cmd)  # before clamp
                 v_clamped = min(v_intent, self.bridge_v_max_reverse)
                 v_clamped = max(v_clamped, self.bridge_v_min)

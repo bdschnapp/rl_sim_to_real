@@ -266,62 +266,90 @@ class LaneReferenceNode(Node):
                 return prev
         return ego_candidates[0]
 
-    def _concat_centerline(self, active_lanelet) -> List[tuple]:
-        # Build seq = [N predecessors] + [active] + [as many successors as
-        # needed to cover forward_horizon_m, looping back to active if the
-        # network is a closed ring]. The MVSL map's lanelets are ~3 m each
-        # and the policy was trained on long paths; if we publish only the
-        # active lanelet, the truck drives off the end almost immediately
-        # and the env's projection-to-path obs goes to infinity.
+    def _concat_centerline(self, active_lanelet, reverse: bool = False) -> List[tuple]:
+        # Build a connected lanelet chain (canonical order) covering
+        # forward_horizon_m in the DIRECTION OF TRAVEL, plus a short margin on
+        # the other side, then emit the fine centerline ORDERED in the travel
+        # direction. The MVSL map's lanelets are ~3 m each and the policy was
+        # trained on long paths flowing in the travel direction; if the path
+        # runs the wrong way the env's heading error reads ~pi (truck appears
+        # 180 deg mis-aligned) and the policy commands full-lock steering.
+        #
+        # FORWARD travel = +canonical lanelet direction: [1 pred] + active +
+        #   [successors up to horizon]; emit in canonical order.
+        # REVERSE travel = -canonical (goal is BEHIND, s_goal < s_ego): extend
+        #   via PREDECESSORS up to horizon + active + [1 successor margin], then
+        #   REVERSE the point order so the path flows the way the truck backs.
         seq: List = []
-        visited = set()
-
-        # One predecessor so the path covers behind the truck (e_y_t depends
-        # on trailer position, which sits behind the tractor).
-        try:
-            prevs = self.routing_graph.previous(active_lanelet)
-        except Exception:
-            prevs = []
-        if prevs:
-            seq.append(prevs[0])
-            visited.add(prevs[0].id)
-
-        seq.append(active_lanelet)
-        visited.add(active_lanelet.id)
-
-        # Walk forward until total length >= forward_horizon_m or we loop.
+        visited = {active_lanelet.id}
         total_len = self._approx_length(active_lanelet)
-        current = active_lanelet
         max_steps = 64  # safety cap; lanelet rings shouldn't be longer
-        for _ in range(max_steps):
-            if total_len >= self.forward_horizon_m:
-                break
+
+        if not reverse:
             try:
-                nexts = self.routing_graph.following(current)
+                prevs = self.routing_graph.previous(active_lanelet)
+            except Exception:
+                prevs = []
+            if prevs:
+                seq.append(prevs[0]); visited.add(prevs[0].id)
+            seq.append(active_lanelet)
+            current = active_lanelet
+            for _ in range(max_steps):
+                if total_len >= self.forward_horizon_m:
+                    break
+                try:
+                    nexts = self.routing_graph.following(current)
+                except Exception:
+                    nexts = []
+                if not nexts:
+                    break
+                nxt = nexts[0]
+                seq.append(nxt)
+                total_len += self._approx_length(nxt)
+                if nxt.id in visited:
+                    break
+                visited.add(nxt.id); current = nxt
+        else:
+            # Walk PREDECESSORS (backward toward the goal) up to the horizon.
+            preds: List = []   # near->far; reversed to canonical below
+            current = active_lanelet
+            for _ in range(max_steps):
+                if total_len >= self.forward_horizon_m:
+                    break
+                try:
+                    prevs = self.routing_graph.previous(current)
+                except Exception:
+                    prevs = []
+                if not prevs:
+                    break
+                prv = prevs[0]
+                total_len += self._approx_length(prv)
+                preds.append(prv)
+                if prv.id in visited:
+                    break
+                visited.add(prv.id); current = prv
+            # One successor for a small margin past the truck's nose.
+            try:
+                nexts = self.routing_graph.following(active_lanelet)
             except Exception:
                 nexts = []
-            if not nexts:
-                break
-            nxt = nexts[0]
-            seq.append(nxt)
-            total_len += self._approx_length(nxt)
-            if nxt.id in visited:
-                # closed ring; include this duplicate to bridge the seam and stop
-                break
-            visited.add(nxt.id)
-            current = nxt
+            # Canonical connected order: [far pred ... near pred, active, succ]
+            seq = list(reversed(preds)) + [active_lanelet] + ([nexts[0]] if nexts else [])
 
         try:
             combined = self._utilities.combineLaneletsShape(seq)
             fine = self._utilities.generateFineCenterline(combined, self.centerline_resolution_m)
-            return [(pt.x, pt.y) for pt in fine]
+            pts = [(pt.x, pt.y) for pt in fine]
         except Exception:
             # Fall back to raw centerline points
             pts = []
             for ll in seq:
                 for p in ll.centerline:
                     pts.append((p.x, p.y))
-            return pts
+
+        if reverse:
+            pts = pts[::-1]   # flow in the travel (backward) direction
+        return pts
 
     def _approx_length(self, lanelet) -> float:
         """Sum of segment lengths of the lanelet centerline. Used to decide
@@ -349,7 +377,22 @@ class LaneReferenceNode(Node):
             self.get_logger().info(f"Active lanelet -> {active.id}")
             self._last_active_id = active.id
 
-        polyline = self._concat_centerline(active)
+        # Decide travel direction FIRST — the centerline must be built in the
+        # direction of travel (reverse extends toward the goal via predecessors
+        # and flows backward), otherwise the policy reads e_psi ~ pi. Latched
+        # once per goal (see note below).
+        if self._goal_pose is None:
+            self._goal_drive_reverse = None
+            drive_reverse = False
+        else:
+            if self._goal_drive_reverse is None:
+                self._goal_drive_reverse = self._infer_drive_reverse(active)
+                self.get_logger().info(
+                    f"Drive direction latched: "
+                    f"{'REVERSE' if self._goal_drive_reverse else 'FORWARD'}")
+            drive_reverse = self._goal_drive_reverse
+
+        polyline = self._concat_centerline(active, reverse=drive_reverse)
         if len(polyline) < 2:
             self._publish_drive(False)
             return
@@ -374,24 +417,8 @@ class LaneReferenceNode(Node):
             drive = dist > self.goal_reached_distance_m
         self._publish_drive(drive)
 
-        # Direction inference: latch once per goal. Recomputing every tick
-        # produces flapping as the truck approaches the goal (s_goal - s_ego
-        # crosses zero) or when its projected segment on the active lanelet
-        # changes (tangent jumps). With one goal -> one direction, the bridge
-        # commits to that direction and goal_reached_distance_m stops it.
-        if self._goal_pose is None:
-            # No goal: clear latch so the next goal gets a fresh decision,
-            # and default to forward for subscribers' initial state.
-            self._goal_drive_reverse = None
-            drive_reverse = False
-        else:
-            if self._goal_drive_reverse is None:
-                self._goal_drive_reverse = self._infer_drive_reverse(active)
-                self.get_logger().info(
-                    f"Drive direction latched: "
-                    f"{'REVERSE' if self._goal_drive_reverse else 'FORWARD'}"
-                )
-            drive_reverse = self._goal_drive_reverse
+        # Direction was decided above (latched once per goal; recomputing every
+        # tick flaps as s_goal - s_ego crosses zero near the goal). Publish it.
         self._publish_drive_direction(drive_reverse)
 
     def _infer_drive_reverse(self, active_lanelet) -> bool:

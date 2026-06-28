@@ -83,7 +83,8 @@ def _make_tractor_only_env(scenario: str, reward: str, lidar_beams: int,
 
 
 def _train(scenario: str, reward: str, lidar_beams: int, timesteps: int,
-           n_envs: int, device: str, eval_freq: int, normalized_eval_freq: int):
+           n_envs: int, device: str, eval_freq: int, normalized_eval_freq: int,
+           n_eval_episodes: int = 5):
     """A trimmed copy of e2e_rl/train.py:main() for obs='lidar', MlpPolicy,
     using the tractor-only env. Writes into ./models/<scenario>/lidar_<beams>/
     <reward>/ relative to the (already chdir'd) out_dir."""
@@ -153,7 +154,7 @@ def _train(scenario: str, reward: str, lidar_beams: int, timesteps: int,
             best_model_save_path=str(save_root),
             log_path=str(log_dir),
             eval_freq=max(eval_freq // n_envs, 1),
-            n_eval_episodes=10,
+            n_eval_episodes=n_eval_episodes,
             deterministic=True,
             render=False,
         ),
@@ -162,7 +163,7 @@ def _train(scenario: str, reward: str, lidar_beams: int, timesteps: int,
             best_model_save_path=str(norm_dir),
             log_path=str(norm_dir / "logs"),
             eval_freq=max(normalized_eval_freq // n_envs, 1),
-            n_eval_episodes=10,
+            n_eval_episodes=n_eval_episodes,
             deterministic=True,
         ),
     ]
@@ -184,6 +185,13 @@ def main() -> None:
         )
     )
     parser.add_argument("--scenario", choices=["forward", "reverse"], required=True)
+    parser.add_argument("--mild-paths", dest="mild_paths", action="store_true",
+                        help="Train only on straight+gentle paths (baseline isolation).")
+    parser.add_argument("--speed-min", dest="speed_min", type=float, default=None,
+                        help="Min per-episode speed (m/s); with --speed-max overrides "
+                             "velocity randomisation for all path kinds (deploy speed).")
+    parser.add_argument("--speed-max", dest="speed_max", type=float, default=None,
+                        help="Max per-episode speed (m/s).")
     parser.add_argument("--timesteps", type=int, default=200_000)
     parser.add_argument("--n-envs", dest="n_envs", type=int, default=1)
     parser.add_argument("--lidar-beams", dest="lidar_beams", type=int, default=24)
@@ -192,6 +200,9 @@ def main() -> None:
     parser.add_argument("--eval-freq", dest="eval_freq", type=int, default=10_000)
     parser.add_argument("--normalized-eval-freq", dest="normalized_eval_freq",
                         type=int, default=30_000)
+    parser.add_argument("--n-eval-episodes", dest="n_eval_episodes", type=int, default=5,
+                        help="Episodes per eval pass (default 5; was 10 — eval cost "
+                             "scales with episode length, which is now large).")
     parser.add_argument("--out-dir", dest="out_dir", default=str(DEFAULT_OUT))
     parser.add_argument("--e2e-rl-path", dest="e2e_rl_path", default=str(DEFAULT_E2E_RL))
     parser.add_argument("--variable-speed", dest="variable_speed", action="store_true",
@@ -201,8 +212,12 @@ def main() -> None:
                               "stop_signal > --stop-threshold stops + terminates with "
                               "reward -(--stop-penalty). Mutually exclusive with "
                               "--variable-speed."))
-    parser.add_argument("--stop-threshold", dest="stop_threshold", type=float, default=0.0)
+    parser.add_argument("--stop-threshold", dest="stop_threshold", type=float, default=0.5,
+                        help="stop_signal above this triggers a stop (default 0.5; raised "
+                             "from 0 so exploration episodes survive). Deploy bridge must match.")
     parser.add_argument("--stop-penalty", dest="stop_penalty", type=float, default=200.0)
+    parser.add_argument("--stop-noise", dest="stop_noise", type=float, default=0.1,
+                        help="Exploration noise sigma on the stop_signal dim (default 0.1).")
     parser.add_argument("--v-min", dest="v_min", type=float, default=0.5)
     parser.add_argument("--v-max", dest="v_max", type=float, default=3.0)
     # Optional reward-shaping passthroughs (same semantics as train_lab_model).
@@ -223,7 +238,7 @@ def main() -> None:
     # apply to the tractor-only env transparently.
     tlm._apply_lab_config_overrides(e2e_rl_path)
     tlm._patch_env_vehicle_params(e2e_rl_path)
-    tlm._patch_path_generator(e2e_rl_path)
+    tlm._patch_path_generator(e2e_rl_path, mild_only=args.mild_paths)
     # NO actuator-lag patch — training is delay-free by design (sim-to-real
     # latency is handled at deploy by the Smith Predictor, not learned here).
     if args.variable_speed:
@@ -237,8 +252,9 @@ def main() -> None:
             e2e_rl_path,
             threshold=args.stop_threshold,
             stop_penalty=args.stop_penalty,
+            stop_noise=args.stop_noise,
         )
-    tlm._patch_velocity_randomisation(e2e_rl_path)
+    tlm._patch_velocity_randomisation(e2e_rl_path, speed_min=args.speed_min, speed_max=args.speed_max)
     if args.curvature_speed_weight > 0.0:
         # NOTE: the curvature/target-speed reward patches in train_lab_model
         # override LineFollowingEnv.get_reward at the SOURCE level, which our
@@ -263,6 +279,7 @@ def main() -> None:
         device=args.device,
         eval_freq=args.eval_freq,
         normalized_eval_freq=args.normalized_eval_freq,
+        n_eval_episodes=args.n_eval_episodes,
     )
 
 

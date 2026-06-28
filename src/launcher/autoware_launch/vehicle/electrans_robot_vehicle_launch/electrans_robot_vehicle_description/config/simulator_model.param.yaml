@@ -11,18 +11,16 @@
     vel_rate_lim: 7.0 # limit of acceleration
     steer_lim: 1.0 # limit of steering angle
     steer_rate_lim: 5.0 # limit of steering angle change rate
-    acc_time_delay: 0.1 # dead time for the acceleration input
-    acc_time_constant: 0.1 # time constant of the 1st-order acceleration dynamics
-    # Steering actuator dynamics tuned for the AgileX 1/8-scale rig's
-    # hobby-class servo. The upstream defaults (delay 0.24 s + constant
-    # 0.27 s = ~500 ms total response) are calibrated for a full-size car's
-    # hydraulic steering column and dominate any closed-loop control at the
-    # lab's 0.6 m/s driving speed. A fast hobby servo responds in ~50 ms
-    # with no dead time; that's closer to the e2e_rl pygame training env
-    # (zero lag) and unblocks the lab-trained policy from oversteering due
-    # to actuator delay.
+    # TEMP (2026-06-28): actuator lag zeroed to validate the RL pipeline
+    # delay-free (the policy trained with zero lag). Reverse is non-minimum-
+    # phase / unstable and cannot absorb sim lag, so we remove it as a
+    # confound while debugging reverse. RESTORE realistic values once the
+    # pipeline is validated (then compensate lag via Smith predictor):
+    #   acc_time_delay: 0.1, acc_time_constant: 0.1, steer_time_constant: 0.05
+    acc_time_delay: 0.0 # dead time for the acceleration input
+    acc_time_constant: 0.01 # time constant of the 1st-order acceleration dynamics
     steer_time_delay: 0.0
-    steer_time_constant: 0.05
+    steer_time_constant: 0.01
     steer_dead_band: 0.0 # dead band of the steering angle
     x_stddev: 0.0001 # x standard deviation for dummy covariance in map coordinate
     y_stddev: 0.0001 # y standard deviation for dummy covariance in map coordinate

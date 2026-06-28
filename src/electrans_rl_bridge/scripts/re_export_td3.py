@@ -46,6 +46,17 @@ def main() -> int:
             "must be set explicitly by the caller."
         ),
     )
+    p.add_argument(
+        "--tractor-only",
+        action="store_true",
+        help=(
+            "Checkpoint was trained against the TractorOnly env (5-dim state "
+            "vector instead of 8 — drops hitch γ + both trailer error terms). "
+            "Required for models/tractor_only/... checkpoints: the obs is "
+            "Box(5 + lidar_beams,) and would otherwise be mis-detected as an "
+            "8-state trailer model with the wrong lidar_beams count."
+        ),
+    )
     args = p.parse_args()
 
     if args.e2e_rl_path not in sys.path:
@@ -67,7 +78,9 @@ def main() -> int:
     # Pick the matching e2e_rl env class from the observation space shape, so
     # the bridge can re-instantiate the right env at runtime without the user
     # having to remember which checkpoint goes with which obs pipeline.
-    env_class_module, env_class_name, env_kwargs = _detect_env(model, reverse=args.reverse)
+    env_class_module, env_class_name, env_kwargs = _detect_env(
+        model, reverse=args.reverse, tractor_only=args.tractor_only
+    )
     print(f"  env: {env_class_module}.{env_class_name} kwargs={env_kwargs}")
 
     # The policy needs the same constructor kwargs at load time. Save them as
@@ -89,7 +102,7 @@ def main() -> int:
     return 0
 
 
-def _detect_env(model, reverse: bool = False):
+def _detect_env(model, reverse: bool = False, tractor_only: bool = False):
     """Pick the e2e_rl env class + kwargs that matches the model's observation
     space. The three lane-following obs options are:
 
@@ -111,7 +124,21 @@ def _detect_env(model, reverse: bool = False):
     if isinstance(obs, spaces.Box) and obs.shape == (8,):
         cls = "ReverseStateObservationLineFollowingEnv" if reverse else "StateObservationLineFollowingEnv"
         return "Environments.LineFollowing", cls, {}
+    # Lidar variants. State-vector width is 5 for tractor-only (drops hitch γ +
+    # both trailer error terms) vs 8 for tractor+trailer, so lidar_beams is the
+    # remainder after subtracting the correct state width. Tractor-only must be
+    # flagged explicitly because Box(29,) is ambiguous (5+24 vs 8+21).
     if isinstance(obs, spaces.Box) and len(obs.shape) == 1 and obs.shape[0] > 8:
+        if tractor_only:
+            cls = (
+                "ReverseTractorOnlyLidarStateLineFollowingEnv"
+                if reverse else "TractorOnlyLidarStateLineFollowingEnv"
+            )
+            return (
+                "Environments.TractorOnly",
+                cls,
+                {"lidar_beams": int(obs.shape[0] - 5)},
+            )
         if reverse:
             return (
                 "Environments.LineFollowing",

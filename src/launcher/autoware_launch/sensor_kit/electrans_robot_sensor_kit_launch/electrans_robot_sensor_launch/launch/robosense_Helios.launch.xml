@@ -22,11 +22,15 @@
        trailer points from the lidar cloud. With the trailer PHYSICALLY
        DETACHED both are useless: the estimator just logs "Not enough trailer
        face points" and publishes nothing, and there are no trailer points to
-       filter. They default OFF here to free the Jetson. The RL bridge defaults
-       hitch β=0 internally, so the observation is unchanged.
-       >>> When the trailer is reattached, set both back to true. <<< -->
-  <arg name="use_trailer_self_filter" default="false"/>
-  <arg name="use_hitch_angle_estimator" default="false"/>
+       filter, and the RL bridge defaults hitch β=0 internally so the
+       observation is unchanged.
+       Gated by the ELECTRANS_TRAILER env var (set by start_robot.sh's
+       trailer:= flag, or by the top launch file's <set_env>). This avoids
+       threading a `trailer` arg through the 6-deep sensing include chain
+       (several of which are upstream Autoware files). Default false = trailer
+       detached = nodes off (frees the Jetson). trailer:=true turns both on. -->
+  <arg name="use_trailer_self_filter" default="$(env ELECTRANS_TRAILER false)"/>
+  <arg name="use_hitch_angle_estimator" default="$(env ELECTRANS_TRAILER false)"/>
   <arg name="trailer_self_filter_param_path" default="$(find-pkg-share lidar_hitch_angle)/config/trailer_self_filter.param.yaml"/>
 
   <include file="$(find-pkg-share electrans_robot_sensor_launch)/launch/nebula_node_container.launch.py">

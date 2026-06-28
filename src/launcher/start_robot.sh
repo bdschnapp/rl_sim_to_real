@@ -1,52 +1,79 @@
 #!/bin/bash
-# Single entry point for bringing up the real robot.
+# SINGLE ENTRY POINT for the whole stack — real robot OR planning simulator.
 #
-# What it does (in order):
-#   1. Sources ROS Humble + this workspace's install (the ONE consolidated
-#      workspace — no more lidar_ws / Electrans_project juggling).
-#   2. Brings up the PCAN-USB interface (`can1` by default) at 500 kbps
-#      if it isn't already UP. Verifies vehicle status frames are flowing
-#      on the bus before launching anything (low RX bytes = Hunter
-#      powered off OR e-stop engaged OR bitrate mismatch).
-#   3. Exec's the autoware real-robot launch file. The RL bridge,
-#      sensors, localization, map, and Foxglove bridge all come up as
-#      part of that include graph — no other launch commands needed.
+# Usage (ROS-style args, in any order; both optional):
+#   ./src/launcher/start_robot.sh                       # real robot, no trailer
+#   ./src/launcher/start_robot.sh trailer:=true         # real robot + trailer
+#   ./src/launcher/start_robot.sh sim:=true             # sim (RViz), trailer on
+#   ./src/launcher/start_robot.sh sim:=true trailer:=false
 #
-# Usage:
-#   ./src/launcher/start_robot.sh                 # full bring-up
-#   CAN_IFACE=can0 ./src/launcher/start_robot.sh  # override interface
-#   AUTO_CAN_UP=0 ./src/launcher/start_robot.sh   # skip CAN bring-up
-#   SKIP_RX_CHECK=1 ./src/launcher/start_robot.sh # skip the bus-traffic gate
+#   sim:=false (default) → real robot: bring up CAN, then
+#                          electrans_robot_real.launch.xml.
+#   sim:=true            → planning_simulator.launch.xml (no CAN, RViz on).
+#   trailer:=false (default for real) / trailer:=true
+#                          → single switch for ALL trailer subsystems:
+#                            lidar hitch-angle estimator + trailer self-filter
+#                            (sensing chain) and the trailer mesh visualizer.
+#                            Exported as ELECTRANS_TRAILER so the deep sensing
+#                            leaf (robosense_Helios.launch.xml) sees it without
+#                            threading an arg through 6 include levels.
 #
-# Designed to be run on the robot itself OR via:
-#   ssh electrans_robot@agilex './Ben/rl_sim_to_real/src/launcher/start_robot.sh'
+# EVERYTHING ELSE is hard-coded below (behaviour knobs) or comes from each
+# launch file's defaults (machine-specific paths: e2e_rl tree, maps, models —
+# these legitimately differ between the dev desktop running sim and the Jetson
+# running the real robot, so we do NOT override them here).
 #
-# Designed to survive SSH disconnect when invoked via the wrapper at
-# scripts/dynamics/robot/start_autoware_real.sh — that wrapper does the
-# nohup+setsid plumbing.
+# Designed to survive SSH disconnect when invoked via the nohup+setsid wrapper
+# at scripts/dynamics/robot/start_autoware_real.sh.
 set -eo pipefail  # NOT -u: ROS setup scripts trip nounset
 
-# ----- config ----------------------------------------------------------------
-WORKSPACE_ROOT="${WORKSPACE_ROOT:-$HOME/Ben/rl_sim_to_real}"
+# ----- parse ROS-style args (name:=value) ------------------------------------
+SIM="false"
+TRAILER=""   # empty → default per-mode below (real: false, sim: true)
+for arg in "$@"; do
+    case "$arg" in
+        sim:=*)     SIM="${arg#sim:=}" ;;
+        trailer:=*) TRAILER="${arg#trailer:=}" ;;
+        *) echo "WARN: ignoring unrecognised arg '$arg' (expected sim:=… / trailer:=…)" >&2 ;;
+    esac
+done
+# Per-mode trailer default if not given explicitly.
+if [ -z "$TRAILER" ]; then
+    if [ "$SIM" = "true" ]; then TRAILER="true"; else TRAILER="false"; fi
+fi
+
+# ----- hard-coded behaviour knobs (edit here, one place) ---------------------
+# Machine-independent RL bridge knobs. Machine-specific paths (e2e_rl, models,
+# map) are intentionally left to each launch file's defaults.
+ACTION_SPACE="${ACTION_SPACE:-stop_signal}"   # fixed_speed | variable_speed
+CONTROL_RATE_HZ="${CONTROL_RATE_HZ:-10.0}"
+DEFAULT_VELOCITY_MPS="${DEFAULT_VELOCITY_MPS:-0.6}"
+
+# Real-robot CAN config.
 CAN_IFACE="${CAN_IFACE:-can1}"
 CAN_BITRATE="${CAN_BITRATE:-500000}"
-SUDO_PASS="${SUDO_PASS:-a}"          # fallback only; sudo is bypassed if `ip` has CAP_NET_ADMIN
+SUDO_PASS="${SUDO_PASS:-a}"          # fallback only; bypassed if `ip` has CAP_NET_ADMIN
 AUTO_CAN_UP="${AUTO_CAN_UP:-1}"
 SKIP_RX_CHECK="${SKIP_RX_CHECK:-0}"
-MAP_PATH="${MAP_PATH:-$HOME/Ben/autoware_map/mvsl}"
+# New tractor-trailer RL lab map (fresh 2026-06-27 capture, 2.8 m bidirectional
+# lane). Desktop/sim location; on the Jetson scp this dir over and either place it
+# at the same path or override with MAP_PATH=... when launching the real robot.
+MAP_PATH="${MAP_PATH:-$HOME/Ben/Electrans/autoware_map/tractor_trailer_rl_lab_map}"
 LAUNCH_RVIZ="${LAUNCH_RVIZ:-true}"
 LAUNCH_PERCEPTION="${LAUNCH_PERCEPTION:-false}"
 
-# RViz needs an X display. When this script runs over an SSH-detached
-# session (start_autoware_real.sh wrapper), there's no DISPLAY and RViz
-# would crash on launch with "could not connect to display". Disable RViz
-# automatically in that case so the rest of the stack still comes up.
-if [ "$LAUNCH_RVIZ" = "true" ] && [ -z "${DISPLAY:-}" ]; then
-    echo "ℹ  DISPLAY not set — auto-disabling RViz (set LAUNCH_RVIZ=true && export DISPLAY=:0 to force)"
-    LAUNCH_RVIZ="false"
-fi
+# Workspace root: derive from THIS script's location (src/launcher/), so the
+# same script works on the dev desktop and the Jetson regardless of where the
+# repo lives. Override with WORKSPACE_ROOT if needed.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WORKSPACE_ROOT="${WORKSPACE_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 
-# ----- 1. environment --------------------------------------------------------
+# Trailer flag exported for the sensing-chain leaf + read by <set_env> in the
+# launch files. Belt-and-suspenders: exporting here is 100% reliable even if
+# launch-file <set_env> propagation timing ever changed.
+export ELECTRANS_TRAILER="$TRAILER"
+
+# ----- environment -----------------------------------------------------------
 source /opt/ros/humble/setup.bash
 WS_SETUP="$WORKSPACE_ROOT/install/setup.bash"
 if [ ! -f "$WS_SETUP" ]; then
@@ -56,8 +83,36 @@ if [ ! -f "$WS_SETUP" ]; then
 fi
 source "$WS_SETUP"
 echo "✓ Sourced $WS_SETUP"
+echo "✓ Mode: sim=$SIM  trailer=$TRAILER  (ELECTRANS_TRAILER=$ELECTRANS_TRAILER)"
 
-# ----- 2. CAN bring-up -------------------------------------------------------
+# =============================================================================
+# SIM path — no CAN, no sensors; planning_simulator brings up RViz.
+# =============================================================================
+if [ "$SIM" = "true" ]; then
+    echo
+    echo "→ Launching planning_simulator (map=$MAP_PATH, trailer=$TRAILER)..."
+    echo
+    exec env SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
+        TORCHDYNAMO_DISABLE=1 TORCH_COMPILE_DISABLE=1 PYTORCH_NO_TRITON=1 \
+        ELECTRANS_TRAILER="$TRAILER" \
+        ros2 launch autoware_launch planning_simulator.launch.xml \
+        map_path:="$MAP_PATH" \
+        trailer:="$TRAILER" \
+        action_space:="$ACTION_SPACE" \
+        control_rate_hz:="$CONTROL_RATE_HZ" \
+        default_velocity_mps:="$DEFAULT_VELOCITY_MPS"
+fi
+
+# =============================================================================
+# REAL path — CAN bring-up + bus sanity gate, then the real launch.
+# =============================================================================
+# RViz needs an X display. Over an SSH-detached session there's no DISPLAY and
+# RViz would crash; auto-disable so the rest of the stack still comes up.
+if [ "$LAUNCH_RVIZ" = "true" ] && [ -z "${DISPLAY:-}" ]; then
+    echo "ℹ  DISPLAY not set — auto-disabling RViz (export DISPLAY=:0 to force)"
+    LAUNCH_RVIZ="false"
+fi
+
 if [ "$AUTO_CAN_UP" = "1" ]; then
     if ! ip link show "$CAN_IFACE" >/dev/null 2>&1; then
         echo "ERROR: CAN interface '$CAN_IFACE' does not exist." >&2
@@ -71,7 +126,6 @@ if [ "$AUTO_CAN_UP" = "1" ]; then
     else
         echo "→ Bringing $CAN_IFACE up at $CAN_BITRATE bps..."
         if sudo -n true 2>/dev/null; then
-            # Passwordless sudo available — preferred path.
             sudo ip link set "$CAN_IFACE" up type can bitrate "$CAN_BITRATE"
         else
             echo "  (using SUDO_PASS env / default fallback)"
@@ -81,8 +135,8 @@ if [ "$AUTO_CAN_UP" = "1" ]; then
     fi
 
     if [ "$SKIP_RX_CHECK" != "1" ]; then
-        # Hunter vehicle broadcasts status frames at ~430 B/s. Anything
-        # below 100 B over 2 s ⇒ vehicle off / e-stop / bitrate mismatch.
+        # Hunter vehicle broadcasts status frames at ~430 B/s. Anything below
+        # 100 B over 2 s ⇒ vehicle off / e-stop / bitrate mismatch.
         echo "→ Checking bus traffic on $CAN_IFACE (2 s sample)..."
         B=$(ip -s link show "$CAN_IFACE" | awk '/RX:/{getline; print $2}')
         sleep 2
@@ -97,9 +151,8 @@ if [ "$AUTO_CAN_UP" = "1" ]; then
     fi
 fi
 
-# ----- 3. launch -------------------------------------------------------------
 echo
-echo "→ Launching electrans_robot_real (map=$MAP_PATH, rviz=$LAUNCH_RVIZ, perception=$LAUNCH_PERCEPTION)..."
+echo "→ Launching electrans_robot_real (map=$MAP_PATH, rviz=$LAUNCH_RVIZ, perception=$LAUNCH_PERCEPTION, trailer=$TRAILER)..."
 echo
 exec env FASTDDS_BUILTIN_TRANSPORTS=UDPv4 \
     SDL_VIDEODRIVER=dummy \
@@ -107,7 +160,12 @@ exec env FASTDDS_BUILTIN_TRANSPORTS=UDPv4 \
     TORCHDYNAMO_DISABLE=1 \
     TORCH_COMPILE_DISABLE=1 \
     PYTORCH_NO_TRITON=1 \
+    ELECTRANS_TRAILER="$TRAILER" \
     ros2 launch autoware_launch electrans_robot_real.launch.xml \
     map_path:="$MAP_PATH" \
     rviz:="$LAUNCH_RVIZ" \
-    perception:="$LAUNCH_PERCEPTION"
+    perception:="$LAUNCH_PERCEPTION" \
+    trailer:="$TRAILER" \
+    action_space:="$ACTION_SPACE" \
+    control_rate_hz:="$CONTROL_RATE_HZ" \
+    default_velocity_mps:="$DEFAULT_VELOCITY_MPS"

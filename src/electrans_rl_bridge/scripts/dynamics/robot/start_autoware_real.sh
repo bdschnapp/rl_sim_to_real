@@ -8,6 +8,8 @@
 # a few seconds after launch.
 #
 # Mirrors the start_dynamics_bag.sh pattern. Stop with stop_autoware_real.sh.
+#
+# Any args (e.g. trailer:=true) are forwarded verbatim to start_robot.sh.
 set -eo pipefail
 
 # ---- paths ----------------------------------------------------------------
@@ -38,7 +40,7 @@ fi
 
 # ---- launch detached ------------------------------------------------------
 echo "Detaching launch via nohup+setsid → $LOG_FILE"
-nohup setsid bash "$ENTRY_POINT" > "$LOG_FILE" 2>&1 < /dev/null &
+nohup setsid bash "$ENTRY_POINT" "$@" > "$LOG_FILE" 2>&1 < /dev/null &
 LAUNCH_PID=$!
 echo "$LAUNCH_PID" > "$PID_FILE"
 
