@@ -57,6 +57,13 @@ AUTO_CAN_UP="${AUTO_CAN_UP:-1}"
 SKIP_RX_CHECK="${SKIP_RX_CHECK:-0}"
 LAUNCH_RVIZ="${LAUNCH_RVIZ:-true}"
 LAUNCH_PERCEPTION="${LAUNCH_PERCEPTION:-false}"
+# RL=0 launches WITHOUT the control component (RL bridge) — sensing +
+# localization + map only. Used to free the Jetson's CPU and test whether NDT
+# localization works with headroom (the RL bridge + BEV are a big CPU consumer).
+# Combine with LAUNCH_RVIZ=false to also drop rviz (~2 cores) for the leanest
+# localization-only stack:  RL=0 LAUNCH_RVIZ=false ./start_robot.sh
+RL="${RL:-1}"
+if [ "$RL" = "0" ]; then CONTROL=false; else CONTROL=true; fi
 
 # Workspace root: derive from THIS script's location (src/launcher/), so the
 # same script works on the dev desktop and the Jetson regardless of where the
@@ -171,7 +178,7 @@ if [ "$AUTO_CAN_UP" = "1" ]; then
 fi
 
 echo
-echo "→ Launching electrans_robot_real (map=$MAP_PATH, rviz=$LAUNCH_RVIZ, perception=$LAUNCH_PERCEPTION, trailer=$TRAILER)..."
+echo "→ Launching electrans_robot_real (map=$MAP_PATH, rviz=$LAUNCH_RVIZ, control/RL=$CONTROL, perception=$LAUNCH_PERCEPTION, trailer=$TRAILER)..."
 echo
 exec env FASTDDS_BUILTIN_TRANSPORTS=UDPv4 \
     SDL_VIDEODRIVER=dummy \
@@ -185,6 +192,7 @@ exec env FASTDDS_BUILTIN_TRANSPORTS=UDPv4 \
     e2e_rl_path:="$E2E_RL_PATH" \
     rviz:="$LAUNCH_RVIZ" \
     perception:="$LAUNCH_PERCEPTION" \
+    control:="$CONTROL" \
     trailer:="$TRAILER" \
     action_space:="$ACTION_SPACE" \
     control_rate_hz:="$CONTROL_RATE_HZ" \
