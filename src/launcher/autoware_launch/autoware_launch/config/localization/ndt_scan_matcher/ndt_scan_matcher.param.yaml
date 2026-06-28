@@ -79,7 +79,12 @@
     score_estimation:
       # Converged param type
       # 0=TRANSFORM_PROBABILITY, 1=NEAREST_VOXEL_TRANSFORMATION_LIKELIHOOD
-      converged_param_type: 1
+      # Use TP (0): in the feature-sparse MVSL lab the match scores NVTL ~2.1,
+      # just under the 2.3 NVTL gate, so NDT rejected every estimate and never
+      # corrected the EKF (drift). TP scores ~3.6, comfortably over its 3.0 gate,
+      # so the same good match converges and publishes. (Verified live: flipping
+      # this cleared the "pose is not updated / cov large" diagnostics.)
+      converged_param_type: 0
 
       # If converged_param_type is 0
       # Threshold for deciding whether to trust the estimation result
