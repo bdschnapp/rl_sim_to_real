@@ -48,16 +48,18 @@
     <include file="$(find-pkg-share autoware_pose_initializer)/launch/pose_initializer.launch.xml">
       <arg name="user_defined_initial_pose/enable" value="$(var user_defined_initial_pose/enable)"/>
       <arg name="user_defined_initial_pose/pose" value="$(var user_defined_initial_pose/pose)"/>
-      <!-- RE-ENABLED 2026-06-28. This was disabled because the lidar preprocessing
-           wasn't producing /localization/util/downsample/pointcloud (so ndt_align
-           hung). That root cause is now fixed: the concatenate node had a duplicate
-           input topic with a bogus 0.081 offset, and the NDT scan voxel was 3.0 m
-           (outdoor scale) which decimated the lab sweep to ~67 points. With the
-           concat fixed + voxel 0.5 m, the downsample cloud now flows (~1000 pts),
-           so NDT aligns. With ndt_enabled=false the pose_initializer never
-           activated the ndt_scan_matcher ("Node is not activated"), so the EKF
-           just held the raw initial pose with no map-relative correction. -->
-      <arg name="ndt_enabled" value="true"/>
+      <!-- ndt_enabled=false on purpose, but NDT is STILL USED (see initialpose_shim).
+           Keeping it true makes the pose_initializer call the BLOCKING ndt_align
+           service during init, which deadlocks on this robot: ndt_align needs the
+           pointcloud map, NDT's dynamic map loader only loads the map around the
+           live EKF pose, but the pose_initializer DEACTIVATES the EKF during init
+           -> no pose -> no map load -> ndt_align hangs forever ("Call align
+           server" never returns, EKF never re-activates). Instead we set false so
+           init just sets the user pose + activates the EKF (no hang), and
+           initialpose_shim then activates the ONGOING ndt_scan_matcher via its
+           trigger_node service. With the EKF live, NDT's dynamic loader gets a
+           pose, loads the map, and corrects continuously. -->
+      <arg name="ndt_enabled" value="false"/>
       <arg name="yabloc_enabled" value="false"/>
       <arg name="gnss_enabled" value="$(var gnss_enabled)"/>
       <arg name="ekf_enabled" value="true"/>
