@@ -154,6 +154,17 @@ class ROSLineFollowingAdapter:
         # is applied DIRECTLY (reverse_steer_rate_sign = +1), matching native.
         # Live-tunable for A/B.
         self._reverse_native_obs = True
+        # FORWARD tractor-only: same idea as reverse_native_obs but the FULL
+        # un-mirror (negate obs[0:5] INCLUDING steer, + reverse lidar) so the
+        # policy sees the exact native build_observation obs it trained on. The
+        # forward mirror convention is only self-consistent in ONE lane-travel
+        # direction (it works canonical, drives into the wall anti-canonical
+        # because e_y doesn't flip sign with travel direction while e_psi/k1 do).
+        # Going fully native removes that fragility (reverse already works both
+        # ways this way). Forward negates obs[0] too (and uses action sign +1),
+        # unlike reverse (keeps obs[0], sign -1), because the +v vs -v vehicle
+        # response flips the steering->turn relationship.
+        self._forward_native_obs = True
         # Set by _local_centerline each tick: True when _orient_centerline_forward
         # reversed the centerline array (truck driving against canonical lanelet
         # direction). Reversing negates computed curvature, so get_observation
@@ -202,8 +213,12 @@ class ROSLineFollowingAdapter:
         self._reverse_env = env
 
     def set_reverse_native_obs(self, enabled: bool):
-        """Toggle the reverse tractor-only full un-mirror (recover native obs)."""
+        """Toggle the reverse tractor-only un-mirror (recover native obs)."""
         self._reverse_native_obs = bool(enabled)
+
+    def set_forward_native_obs(self, enabled: bool):
+        """Toggle the forward tractor-only FULL un-mirror (recover native obs)."""
+        self._forward_native_obs = bool(enabled)
 
     # --------------------------------------------------------------- observ.
     def has_path(self) -> bool:
@@ -278,6 +293,21 @@ class ROSLineFollowingAdapter:
             vec = obs if isinstance(obs, np.ndarray) else obs.get("vector")
             if vec is not None:
                 vec[1:5] *= -1.0
+                vec[5:] = vec[5:][::-1]
+        # Forward tractor-only: the correct convention DEPENDS on whether
+        # _orient_centerline_forward reversed the centerline array (i.e. which way
+        # the truck drives the bidirectional lane). Sim 2026-06-28: the mirror
+        # convention (no un-mirror, action -1) works the NON-reversed (canonical)
+        # direction; the full un-mirror (negate obs[0:5] + reverse lidar, action
+        # +1) works the REVERSED (anti-canonical) direction. Applying either
+        # unconditionally just SWAPS which direction works. So apply the full
+        # un-mirror ONLY when the centerline was reversed; the bridge mirrors this
+        # by using forward_steer_rate_sign (+1) when reversed, -1 otherwise.
+        if ((not self._is_reverse) and is_tractor_only and self._forward_native_obs
+                and self._centerline_reversed):
+            vec = obs if isinstance(obs, np.ndarray) else obs.get("vector")
+            if vec is not None:
+                vec[0:5] *= -1.0
                 vec[5:] = vec[5:][::-1]
         return obs
 

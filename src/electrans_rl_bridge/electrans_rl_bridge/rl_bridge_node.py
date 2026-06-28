@@ -164,6 +164,12 @@ class RLBridgeNode(Node):
         # Verified deploy==native build_observation. Fixes curvature sign + lidar
         # order that the piecemeal e_y/e_psi flips left wrong. Live-tunable.
         self.declare_parameter("reverse_native_obs", True)
+        # FORWARD tractor-only native obs (full un-mirror incl steer). Makes
+        # forward behave like reverse (works both lane directions) instead of the
+        # fragile mirror convention. Pairs with forward_steer_rate_sign=+1.0
+        # (apply the action directly, since obs[0]=steer is also un-mirrored).
+        self.declare_parameter("forward_native_obs", True)
+        self.declare_parameter("forward_steer_rate_sign", 1.0)
 
         # Smith Predictor: predictor-feedback shim that lets a delay-free-
         # trained policy (e.g. v15) deploy on a delayed sim/robot. When
@@ -208,6 +214,8 @@ class RLBridgeNode(Node):
         self.reverse_steer_rate_sign = float(self.get_parameter("reverse_steer_rate_sign").value)
         self.reverse_kinematic_scaling = bool(self.get_parameter("reverse_kinematic_scaling").value)
         self.reverse_native_obs = bool(self.get_parameter("reverse_native_obs").value)
+        self.forward_native_obs = bool(self.get_parameter("forward_native_obs").value)
+        self.forward_steer_rate_sign = float(self.get_parameter("forward_steer_rate_sign").value)
         self._reverse_steer_rate_ema = 0.0
         self.use_smith_predictor = bool(self.get_parameter("use_smith_predictor").value)
         self.smith_steer_tau = float(self.get_parameter("smith_steer_tau").value)
@@ -354,6 +362,7 @@ class RLBridgeNode(Node):
             world_scale=self.world_scale,
         )
         self.adapter.set_reverse_native_obs(self.reverse_native_obs)
+        self.adapter.set_forward_native_obs(self.forward_native_obs)
 
         # Stop-signal action mode: override the env's action_space to 2-D
         # [steer_rate, stop_signal], stop_signal ∈ [-1, 1]. Set directly on the
@@ -564,6 +573,13 @@ class RLBridgeNode(Node):
                     self.reverse_native_obs = bool(p.value)
                     self.adapter.set_reverse_native_obs(self.reverse_native_obs)
                     self.get_logger().info(f"reverse_native_obs -> {self.reverse_native_obs}")
+                elif p.name == "forward_native_obs":
+                    self.forward_native_obs = bool(p.value)
+                    self.adapter.set_forward_native_obs(self.forward_native_obs)
+                    self.get_logger().info(f"forward_native_obs -> {self.forward_native_obs}")
+                elif p.name == "forward_steer_rate_sign":
+                    self.forward_steer_rate_sign = float(p.value)
+                    self.get_logger().info(f"forward_steer_rate_sign -> {self.forward_steer_rate_sign}")
             return SetParametersResult(successful=True)
         self.add_on_set_parameters_callback(_on_set_params)
 
@@ -797,13 +813,23 @@ class RLBridgeNode(Node):
         # in ros_env_adapter (centerline ys_local, v.s, β). The policy's
         # output is in that mirrored frame, so we negate the steering rate
         # to un-mirror it before commanding the real (un-flipped) vehicle.
-        # FORWARD: -action[0] (works). REVERSE adds an extra +pi rotation on
-        # top of the Y-flip (double-flip) → opposite handedness, so reverse
-        # uses reverse_steer_rate_sign (default +1.0 = +action[0]). Live-tunable.
+        # With native_obs on, the policy sees the un-mirrored (native) obs and
+        # emits the native steer_rate. REVERSE keeps obs[0] mirrored so it uses
+        # reverse_steer_rate_sign=-1; FORWARD un-mirrors obs[0] too so it applies
+        # the action directly via forward_steer_rate_sign=+1. (If native_obs is
+        # off, set the sign to -1 to fall back to the old mirror convention.)
+        # Both live-tunable.
         if is_reverse:
             steering_rate = self.reverse_steer_rate_sign * float(action[0])
         else:
-            steering_rate = -float(action[0])
+            # Forward: the obs convention (and thus the action sign) depends on
+            # whether the centerline was reversed (which lane-travel direction).
+            # Reversed (anti-canonical) -> full-native un-mirror + sign +1;
+            # not reversed (canonical) -> mirror convention + sign -1.
+            if getattr(self.adapter, "_centerline_reversed", False) and self.forward_native_obs:
+                steering_rate = self.forward_steer_rate_sign * float(action[0])
+            else:
+                steering_rate = -float(action[0])
 
         # Remember the just-chosen action so next tick's dual-shadow
         # `step_and_predict` can use it as the action that's currently
