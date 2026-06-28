@@ -48,18 +48,16 @@
     <include file="$(find-pkg-share autoware_pose_initializer)/launch/pose_initializer.launch.xml">
       <arg name="user_defined_initial_pose/enable" value="$(var user_defined_initial_pose/enable)"/>
       <arg name="user_defined_initial_pose/pose" value="$(var user_defined_initial_pose/pose)"/>
-      <!-- ndt_enabled=false on purpose, but NDT is STILL USED (see initialpose_shim).
-           Keeping it true makes the pose_initializer call the BLOCKING ndt_align
-           service during init, which deadlocks on this robot: ndt_align needs the
-           pointcloud map, NDT's dynamic map loader only loads the map around the
-           live EKF pose, but the pose_initializer DEACTIVATES the EKF during init
-           -> no pose -> no map load -> ndt_align hangs forever ("Call align
-           server" never returns, EKF never re-activates). Instead we set false so
-           init just sets the user pose + activates the EKF (no hang), and
-           initialpose_shim then activates the ONGOING ndt_scan_matcher via its
-           trigger_node service. With the EKF live, NDT's dynamic loader gets a
-           pose, loads the map, and corrects continuously. -->
-      <arg name="ndt_enabled" value="false"/>
+      <!-- ndt_enabled=true: the pose_initializer wires up ndt_align so a method=AUTO
+           initialize (from initialpose_shim, replicating InitialPoseAdaptor) runs
+           ndt_align seeded by the height-fitted pose — the same path the working
+           full-Autoware stack (Electrans_project) uses. An earlier theory that
+           ndt_align deadlocks here (map<-EKF pose<-ndt_align) turned out to be a
+           symptom of the missing RViz-pose height-fit (a z=0 seed off the lab pcd
+           ground), not a real chicken-and-egg: the dynamic map loader loads around
+           the provided init pose, not the deactivated EKF pose. With the shim's
+           height-fit restored, AUTO converges. -->
+      <arg name="ndt_enabled" value="true"/>
       <arg name="yabloc_enabled" value="false"/>
       <arg name="gnss_enabled" value="$(var gnss_enabled)"/>
       <arg name="ekf_enabled" value="true"/>

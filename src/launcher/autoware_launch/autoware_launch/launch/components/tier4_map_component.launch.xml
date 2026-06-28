@@ -11,4 +11,14 @@
     <arg name="map_tf_generator_param_path" value="$(find-pkg-share autoware_launch)/config/map/map_tf_generator.param.yaml"/>
     <arg name="map_projection_loader_param_path" value="$(find-pkg-share autoware_launch)/config/map/map_projection_loader.param.yaml"/>
   </include>
+
+  <!-- Map height fitter: snaps an RViz 2D-pose-estimate (z=0) onto the pcd map
+       ground before localization init. Upstream this was driven by the
+       autoware_adapi_adaptors InitialPoseAdaptor, which we removed; we relaunch
+       just the fitter node so initialpose_shim can call /map/map_height_fitter/
+       service (mirroring the adaptor's fitter_.fit(position, frame_id)). Without
+       it, the lab pcd ground (z spans -0.35..1.5 m) doesn't match a z=0 seed and
+       ndt_align starts off-ground. The pose_initializer's own fitter only runs
+       for GNSS init (gnss_module), not for the user/RViz pose. -->
+  <include file="$(find-pkg-share autoware_map_height_fitter)/launch/map_height_fitter.launch.xml"/>
 </launch>

@@ -10,6 +10,8 @@
 
   <exec_depend>rclpy</exec_depend>
   <exec_depend>autoware_adapi_v1_msgs</exec_depend>
+  <exec_depend>autoware_internal_localization_msgs</exec_depend>
+  <exec_depend>autoware_localization_msgs</exec_depend>
   <exec_depend>autoware_control_msgs</exec_depend>
   <exec_depend>autoware_map_msgs</exec_depend>
   <exec_depend>autoware_planning_msgs</exec_depend>
