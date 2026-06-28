@@ -69,6 +69,23 @@ WORKSPACE_ROOT="${WORKSPACE_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 # to point elsewhere.
 MAP_PATH="${MAP_PATH:-$WORKSPACE_ROOT/maps/tractor_trailer_rl_lab_map}"
 
+# Workspace root exported so the launch files resolve in-repo assets (deployed
+# models under lab_models_ttrl_deploy/, vendored map under maps/) via
+# $(env ELECTRANS_REPO ...). This is what makes the model/map defaults portable
+# across the dev desktop and the Jetson without hardcoding either machine's path.
+export ELECTRANS_REPO="$WORKSPACE_ROOT"
+
+# e2e_rl is a RUNTIME dependency (the bridge reconstructs the TD3 policies
+# against e2e_rl env classes and runs their _get_obs every tick — the deployed
+# models' metadata points at Environments.*). It lives as a SIBLING of the
+# workspace on both machines (~/Ben/e2e_rl on the Jetson, ~/Ben/Thesis/e2e_rl on
+# the desktop), so derive it from WORKSPACE_ROOT. Override with E2E_RL_PATH=...
+E2E_RL_PATH="${E2E_RL_PATH:-$(dirname "$WORKSPACE_ROOT")/e2e_rl}"
+if [ ! -d "$E2E_RL_PATH" ]; then
+    echo "WARN: e2e_rl not found at $E2E_RL_PATH — the RL bridge will fail to import" >&2
+    echo "      Environments/Models/e2erl_utils. Set E2E_RL_PATH=... to its location." >&2
+fi
+
 # Trailer flag exported for the sensing-chain leaf + read by <set_env> in the
 # launch files. Belt-and-suspenders: exporting here is 100% reliable even if
 # launch-file <set_env> propagation timing ever changed.
@@ -95,9 +112,10 @@ if [ "$SIM" = "true" ]; then
     echo
     exec env SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
         TORCHDYNAMO_DISABLE=1 TORCH_COMPILE_DISABLE=1 PYTORCH_NO_TRITON=1 \
-        ELECTRANS_TRAILER="$TRAILER" \
+        ELECTRANS_TRAILER="$TRAILER" ELECTRANS_REPO="$ELECTRANS_REPO" \
         ros2 launch autoware_launch planning_simulator.launch.xml \
         map_path:="$MAP_PATH" \
+        e2e_rl_path:="$E2E_RL_PATH" \
         trailer:="$TRAILER" \
         action_space:="$ACTION_SPACE" \
         control_rate_hz:="$CONTROL_RATE_HZ" \
@@ -161,9 +179,10 @@ exec env FASTDDS_BUILTIN_TRANSPORTS=UDPv4 \
     TORCHDYNAMO_DISABLE=1 \
     TORCH_COMPILE_DISABLE=1 \
     PYTORCH_NO_TRITON=1 \
-    ELECTRANS_TRAILER="$TRAILER" \
+    ELECTRANS_TRAILER="$TRAILER" ELECTRANS_REPO="$ELECTRANS_REPO" \
     ros2 launch autoware_launch electrans_robot_real.launch.xml \
     map_path:="$MAP_PATH" \
+    e2e_rl_path:="$E2E_RL_PATH" \
     rviz:="$LAUNCH_RVIZ" \
     perception:="$LAUNCH_PERCEPTION" \
     trailer:="$TRAILER" \

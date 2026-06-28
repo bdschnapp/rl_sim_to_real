@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <launch>
   <!-- Essential parameters -->
-  <arg name="map_path" default="$(env HOME)/Ben/Thesis/Electrans_project/maps/tractor_trailer_rl_lab_map" description="point cloud and lanelet2 map directory path"/>
+  <arg name="map_path" default="$(env ELECTRANS_REPO /home/ben/Ben/Thesis/Electrans_project)/maps/tractor_trailer_rl_lab_map" description="point cloud and lanelet2 map directory path"/>
   <arg name="vehicle_model" default="electrans_robot_vehicle" description="vehicle model name"/>
   <arg name="sensor_model" default="electrans_robot_sensor_kit" description="sensor model name"/>
   <arg name="data_path" default="$(env HOME)/autoware_data" description="packages data and artifacts directory path"/>
@@ -12,8 +12,8 @@
 
   <!-- electrans_rl_bridge knobs. Defaults match
        tier4_control_component.launch.xml / electrans_rl_bridge.launch.xml. -->
-  <arg name="td3_model_path" default="$(env HOME)/Ben/Thesis/Electrans_project/lab_models_ttrl_deploy/forward_trailer/best_model.policy.pth"/>
-  <arg name="td3_reverse_model_path" default="$(env HOME)/Ben/Thesis/Electrans_project/lab_models_ttrl_deploy/reverse_trailer/best_model.policy.pth"/>
+  <arg name="td3_model_path" default="$(env ELECTRANS_REPO /home/ben/Ben/Thesis/Electrans_project)/lab_models_ttrl_deploy/forward_trailer/best_model.policy.pth"/>
+  <arg name="td3_reverse_model_path" default="$(env ELECTRANS_REPO /home/ben/Ben/Thesis/Electrans_project)/lab_models_ttrl_deploy/reverse_trailer/best_model.policy.pth"/>
   <arg name="e2e_rl_path" default="/home/ben/Ben/Thesis/e2e_rl"/>
   <arg name="action_space" default="stop_signal"/>
   <arg name="control_rate_hz" default="10.0"/>

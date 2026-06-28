@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <launch>
-  <arg name="map_path" default="$(env HOME)/Ben/Thesis/Electrans_project/maps/tractor_trailer_rl_lab_map" description="point cloud and lanelet2 map directory path"/>
+  <arg name="map_path" default="$(env ELECTRANS_REPO /home/ben/Ben/Thesis/Electrans_project)/maps/tractor_trailer_rl_lab_map" description="point cloud and lanelet2 map directory path"/>
   <arg name="vehicle_model" default="electrans_robot_vehicle" description="vehicle model name"/>
   <arg name="sensor_model" default="electrans_robot_sensor_kit" description="sensor model name"/>
   <arg name="vehicle_id" default="$(env VEHICLE_ID default)" description="vehicle specific ID"/>
@@ -50,8 +50,8 @@
        control component includes electrans_rl_bridge.launch.xml, so these must point
        at the e2e_rl tree + TD3 models on THIS machine (the Jetson). -->
   <arg name="e2e_rl_path" default="/home/electrans_robot/Ben/e2e_rl" description="e2e_rl source tree on this machine"/>
-  <arg name="td3_model_path" default="$(env HOME)/Ben/Thesis/Electrans_project/lab_models_ttrl_deploy/forward_trailer/best_model.policy.pth" description="forward TD3 policy .pth"/>
-  <arg name="td3_reverse_model_path" default="$(env HOME)/Ben/Thesis/Electrans_project/lab_models_ttrl_deploy/reverse_trailer/best_model.policy.pth" description="reverse TD3 policy .pth"/>
+  <arg name="td3_model_path" default="$(env ELECTRANS_REPO /home/ben/Ben/Thesis/Electrans_project)/lab_models_ttrl_deploy/forward_trailer/best_model.policy.pth" description="forward TD3 policy .pth"/>
+  <arg name="td3_reverse_model_path" default="$(env ELECTRANS_REPO /home/ben/Ben/Thesis/Electrans_project)/lab_models_ttrl_deploy/reverse_trailer/best_model.policy.pth" description="reverse TD3 policy .pth"/>
   <arg name="action_space" default="stop_signal" description="fixed_speed | variable_speed"/>
   <arg name="control_rate_hz" default="10.0" description="RL control loop rate"/>
   <arg name="bev_publish_rate_hz" default="4.0" description="debug BEV render/publish rate; 0 disables"/>

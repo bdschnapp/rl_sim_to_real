@@ -3,8 +3,8 @@
   <!-- Where the e2e_rl source tree is mounted/installed. The two nodes add this
        to sys.path so they can import Environments / Models / e2erl_utils. -->
   <arg name="e2e_rl_path" default="/home/electrans_robot/Ben/e2e_rl"/>
-  <arg name="td3_model_path" default="$(env HOME)/Ben/Thesis/Electrans_project/lab_models_ttrl_deploy/forward_trailer/best_model.policy.pth"/>
-  <arg name="td3_reverse_model_path" default="$(env HOME)/Ben/Thesis/Electrans_project/lab_models_ttrl_deploy/reverse_trailer/best_model.policy.pth"/>
+  <arg name="td3_model_path" default="$(env ELECTRANS_REPO /home/ben/Ben/Thesis/Electrans_project)/lab_models_ttrl_deploy/forward_trailer/best_model.policy.pth"/>
+  <arg name="td3_reverse_model_path" default="$(env ELECTRANS_REPO /home/ben/Ben/Thesis/Electrans_project)/lab_models_ttrl_deploy/reverse_trailer/best_model.policy.pth"/>
 
   <!-- Trailer attached? trailer:=false loads the tractor-only model pair (29-D
        obs, 5-dim state); trailer:=true loads the trailer pair above (32-D).
@@ -15,13 +15,13 @@
   <!-- Tractor-only checkpoints (used when trailer:=false). Must be exported
        with re_export_td3.py in tractor-only mode so their .policy_kwargs.pkl
        meta records the Environments.TractorOnly env class. -->
-  <arg name="td3_model_path_tractor_only" default="$(env HOME)/Ben/Thesis/Electrans_project/lab_models_ttrl_deploy/forward_tractor_only/best_model.policy.pth"/>
-  <arg name="td3_reverse_model_path_tractor_only" default="$(env HOME)/Ben/Thesis/Electrans_project/lab_models_ttrl_deploy/reverse_tractor_only/best_model.policy.pth"/>
+  <arg name="td3_model_path_tractor_only" default="$(env ELECTRANS_REPO /home/ben/Ben/Thesis/Electrans_project)/lab_models_ttrl_deploy/forward_tractor_only/best_model.policy.pth"/>
+  <arg name="td3_reverse_model_path_tractor_only" default="$(env ELECTRANS_REPO /home/ben/Ben/Thesis/Electrans_project)/lab_models_ttrl_deploy/reverse_tractor_only/best_model.policy.pth"/>
 
   <!-- Lanelet2 map: must match what autoware_map_loader was given. The MVSL lab
        map is a Local-projection map (lat="" lon="" + local_x/local_y tags);
        lane_reference_node handles that internally. -->
-  <arg name="map_path" default="$(env HOME)/autoware_map/mvsl"/>
+  <arg name="map_path" default="$(env ELECTRANS_REPO /home/ben/Ben/Thesis/Electrans_project)/maps/tractor_trailer_rl_lab_map"/>
   <arg name="lanelet2_map_file" default="lanelet2_map.osm"/>
 
   <!-- Bridge knobs -->
