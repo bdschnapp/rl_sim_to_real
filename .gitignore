@@ -59,3 +59,7 @@ lab_models_*/.train_logs/
 lab_models_v21/
 lab_models_v21_curriculum/
 lab_models_tractor_only/
+
+# Large debug/capture artifacts (not source)
+lab_map_capture/
+.debug_bags/

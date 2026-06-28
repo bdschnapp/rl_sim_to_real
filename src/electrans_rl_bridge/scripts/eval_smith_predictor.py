@@ -29,7 +29,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 SCRIPTS_DIR = REPO_ROOT / "src/electrans_rl_bridge/scripts"
 DEFAULT_E2E_RL = Path("/home/ben/Ben/Thesis/e2e_rl")
 DEFAULT_CHECKPOINT = (
-    REPO_ROOT / "lab_models_v15/models/reverse/lidar_24/multiplicative/best_model.zip"
+    REPO_ROOT.parent / "previous_models" / "lab_models_v15/models/reverse/lidar_24/multiplicative/best_model.zip"
 )
 
 sys.path.insert(0, str(SCRIPTS_DIR))

@@ -77,8 +77,8 @@ COMMON="--n-envs $N_ENVS --lidar-beams 24 --reward multiplicative $ACTION_FLAG -
 
 # Output roots (overridable so a stop_signal run can land in fresh dirs instead
 # of clobbering the validated fixed-speed checkpoints in the defaults).
-TRACTOR_OUT="${TRACTOR_OUT:-$REPO/lab_models_tractor_only}"
-TRAILER_OUT="${TRAILER_OUT:-$REPO/lab_models_v21}"
+TRACTOR_OUT="${TRACTOR_OUT:-$REPO/../previous_models/lab_models_tractor_only}"
+TRAILER_OUT="${TRAILER_OUT:-$REPO/../previous_models/lab_models_v21}"
 
 want() { [[ " $MODELS " == *" $1 "* ]]; }
 
@@ -104,7 +104,7 @@ if [ "$MODE" = "variable_speed" ]; then
     if [ -f "$BASE_ZIP" ]; then
         run reverse_trailer_curriculum "$PY" train_lab_recovery_curriculum.py \
             --init-from-zip "$BASE_ZIP" --n-envs "$N_ENVS" --lidar-beams 24 --reward multiplicative \
-            --e2e-rl-path "$E2E" --out-dir "$REPO/lab_models_v21_curriculum"
+            --e2e-rl-path "$E2E" --out-dir "$REPO/../previous_models/lab_models_v21_curriculum"
     else
         log "SKIP  reverse_trailer_curriculum (base zip missing: $BASE_ZIP)"
     fi

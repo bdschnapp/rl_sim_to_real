@@ -35,7 +35,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_E2E_RL = Path("/home/ben/Ben/Thesis/e2e_rl")
-DEFAULT_LAB_MODELS = REPO_ROOT / "lab_models_v18" / "models"
+DEFAULT_LAB_MODELS = REPO_ROOT.parent / "previous_models" / "lab_models_v18" / "models"
 
 
 def _apply_variable_speed(
@@ -526,7 +526,7 @@ def main() -> None:
         model_path = Path(args.model)
     elif args.tractor_only:
         obs_tag = f"lidar_{args.lidar_beams}" if args.lidar_beams != 16 else "lidar"
-        model_path = (REPO_ROOT / "lab_models_tractor_only" / "models" /
+        model_path = (REPO_ROOT.parent / "previous_models" / "lab_models_tractor_only" / "models" /
                       args.scenario / obs_tag / args.reward / "best_model.zip")
     else:
         model_path = _default_model_path(
@@ -538,7 +538,7 @@ def main() -> None:
     # run_model writes its print() output relative to CWD; nothing important
     # lands on disk for a render-only run, but chdir to lab_models so any
     # ./models/... lookup inside e2e_rl resolves cleanly.
-    os.chdir(REPO_ROOT / "lab_models_v18")
+    os.chdir(REPO_ROOT.parent / "previous_models" / "lab_models_v18")
 
     print(f"[eval_lab_model] model = {model_path}")
     print(f"[eval_lab_model] e2e_rl = {e2e_rl_path}")

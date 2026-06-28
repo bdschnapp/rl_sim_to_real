@@ -34,7 +34,7 @@ AUTO_CAN_UP="${AUTO_CAN_UP:-1}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE_ROOT="${WORKSPACE_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
-MAP_PATH="${MAP_PATH:-$HOME/Ben/autoware_map/mvsl}"   # only for sensor_kit/vehicle descriptions; map module is OFF
+MAP_PATH="${MAP_PATH:-$HOME/Ben/Thesis/Electrans_project/maps/tractor_trailer_rl_lab_map}"   # only for sensor_kit/vehicle descriptions; map module is OFF
 
 export ELECTRANS_TRAILER="$TRAILER"
 

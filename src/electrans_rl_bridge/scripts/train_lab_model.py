@@ -36,7 +36,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_E2E_RL = Path("/home/ben/Ben/Thesis/e2e_rl")
-DEFAULT_OUT = REPO_ROOT / "lab_models_v16"
+DEFAULT_OUT = REPO_ROOT.parent / "previous_models" / "lab_models_v16"
 
 
 def _apply_lab_config_overrides(e2e_rl_path: Path) -> None:

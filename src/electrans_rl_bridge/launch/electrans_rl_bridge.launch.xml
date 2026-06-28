@@ -3,8 +3,8 @@
   <!-- Where the e2e_rl source tree is mounted/installed. The two nodes add this
        to sys.path so they can import Environments / Models / e2erl_utils. -->
   <arg name="e2e_rl_path" default="/home/electrans_robot/Ben/e2e_rl"/>
-  <arg name="td3_model_path" default="$(env HOME)/Ben/Thesis/Electrans_project/lab_models_v22/models/forward/lidar_24/multiplicative/best_model.policy.pth"/>
-  <arg name="td3_reverse_model_path" default="$(env HOME)/Ben/Thesis/Electrans_project/lab_models_v22/models/reverse/lidar_24/multiplicative/best_model.policy.pth"/>
+  <arg name="td3_model_path" default="$(env HOME)/Ben/Thesis/Electrans_project/lab_models_ttrl_deploy/forward_trailer/best_model.policy.pth"/>
+  <arg name="td3_reverse_model_path" default="$(env HOME)/Ben/Thesis/Electrans_project/lab_models_ttrl_deploy/reverse_trailer/best_model.policy.pth"/>
 
   <!-- Trailer attached? trailer:=false loads the tractor-only model pair (29-D
        obs, 5-dim state); trailer:=true loads the trailer pair above (32-D).

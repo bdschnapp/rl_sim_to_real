@@ -24,7 +24,7 @@ import numpy as np
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SCRIPTS_DIR = REPO_ROOT / "src/electrans_rl_bridge/scripts"
 DEFAULT_E2E_RL = Path("/home/ben/Ben/Thesis/e2e_rl")
-DEFAULT_OUT = REPO_ROOT / "lab_models_v20"
+DEFAULT_OUT = REPO_ROOT.parent / "previous_models" / "lab_models_v20"
 
 sys.path.insert(0, str(SCRIPTS_DIR))
 sys.path.insert(0, str(DEFAULT_E2E_RL))

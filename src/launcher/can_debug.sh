@@ -33,7 +33,7 @@ CAN_BITRATE="${CAN_BITRATE:-500000}"
 SUDO_PASS="${SUDO_PASS:-a}"          # fallback only; sudo is bypassed if `ip` has CAP_NET_ADMIN
 AUTO_CAN_UP="${AUTO_CAN_UP:-1}"
 SKIP_RX_CHECK="${SKIP_RX_CHECK:-0}"
-MAP_PATH="${MAP_PATH:-$HOME/Ben/autoware_map/mvsl}"
+MAP_PATH="${MAP_PATH:-$HOME/Ben/Thesis/Electrans_project/maps/tractor_trailer_rl_lab_map}"
 LAUNCH_RVIZ="${LAUNCH_RVIZ:-true}"
 LAUNCH_PERCEPTION="${LAUNCH_PERCEPTION:-false}"
 

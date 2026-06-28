@@ -55,10 +55,6 @@ CAN_BITRATE="${CAN_BITRATE:-500000}"
 SUDO_PASS="${SUDO_PASS:-a}"          # fallback only; bypassed if `ip` has CAP_NET_ADMIN
 AUTO_CAN_UP="${AUTO_CAN_UP:-1}"
 SKIP_RX_CHECK="${SKIP_RX_CHECK:-0}"
-# New tractor-trailer RL lab map (fresh 2026-06-27 capture, 2.8 m bidirectional
-# lane). Desktop/sim location; on the Jetson scp this dir over and either place it
-# at the same path or override with MAP_PATH=... when launching the real robot.
-MAP_PATH="${MAP_PATH:-$HOME/Ben/Electrans/autoware_map/tractor_trailer_rl_lab_map}"
 LAUNCH_RVIZ="${LAUNCH_RVIZ:-true}"
 LAUNCH_PERCEPTION="${LAUNCH_PERCEPTION:-false}"
 
@@ -67,6 +63,11 @@ LAUNCH_PERCEPTION="${LAUNCH_PERCEPTION:-false}"
 # repo lives. Override with WORKSPACE_ROOT if needed.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE_ROOT="${WORKSPACE_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
+
+# Tractor-trailer RL lab map (2.8 m bidirectional lane), vendored in-repo under
+# maps/ so it travels with the workspace (desktop + Jetson). Override MAP_PATH=...
+# to point elsewhere.
+MAP_PATH="${MAP_PATH:-$WORKSPACE_ROOT/maps/tractor_trailer_rl_lab_map}"
 
 # Trailer flag exported for the sensing-chain leaf + read by <set_env> in the
 # launch files. Belt-and-suspenders: exporting here is 100% reliable even if

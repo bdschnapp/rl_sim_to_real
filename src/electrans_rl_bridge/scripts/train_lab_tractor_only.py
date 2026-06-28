@@ -52,7 +52,7 @@ import train_lab_model as tlm  # noqa: E402  (after sys.path tweak)
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_E2E_RL = Path("/home/ben/Ben/Thesis/e2e_rl")
-DEFAULT_OUT = REPO_ROOT / "lab_models_tractor_only"
+DEFAULT_OUT = REPO_ROOT.parent / "previous_models" / "lab_models_tractor_only"
 
 
 _SCENARIO_TO_ENV = {
