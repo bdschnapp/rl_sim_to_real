@@ -28,11 +28,13 @@
       # The newton line search maximum step length
       step_size: 0.1
 
-      # The ND voxel grid resolution. 2.0 m (outdoor AV default) is coarse for
-      # the 25x20 m lab — it voxelized the map down to ~213 ND cells near the
-      # pose. 1.0 m gives a finer map representation (the lab map has ~360 pts/m^3
-      # so cells stay well-populated) and better pose precision indoors.
-      resolution: 1.0
+      # The ND voxel grid resolution. Kept at the Autoware default 2.0 m: the
+      # convergence threshold below (converged_param_nearest_voxel_transformation_
+      # likelihood: 2.3) is calibrated for 2.0 m. Lowering resolution lowers NVTL
+      # for the same match, so a finer grid here makes good matches fail the 2.3
+      # gate (observed NVTL ~1.0 at resolution 1.0). The real starvation fix was
+      # the scan voxel (3.0 -> 0.5 m); resolution stays 2.0.
+      resolution: 2.0
 
       # The number of iterations required to calculate alignment
       max_iterations: 30

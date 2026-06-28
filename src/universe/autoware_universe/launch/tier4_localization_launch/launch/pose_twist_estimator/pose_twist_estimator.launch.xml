@@ -48,13 +48,16 @@
     <include file="$(find-pkg-share autoware_pose_initializer)/launch/pose_initializer.launch.xml">
       <arg name="user_defined_initial_pose/enable" value="$(var user_defined_initial_pose/enable)"/>
       <arg name="user_defined_initial_pose/pose" value="$(var user_defined_initial_pose/pose)"/>
-      <!-- Disabled: the autoware lidar preprocessing pipeline isn't producing
-           /localization/util/downsample/pointcloud on this robot, so NDT scan
-           matching can't align and the pose_initializer service hangs forever
-           waiting on ndt_align_srv. The RL bridge is centerline-following, not
-           map-relative-via-lidar, so we don't need NDT — just trust the
-           user-provided pose. -->
-      <arg name="ndt_enabled" value="false"/>
+      <!-- RE-ENABLED 2026-06-28. This was disabled because the lidar preprocessing
+           wasn't producing /localization/util/downsample/pointcloud (so ndt_align
+           hung). That root cause is now fixed: the concatenate node had a duplicate
+           input topic with a bogus 0.081 offset, and the NDT scan voxel was 3.0 m
+           (outdoor scale) which decimated the lab sweep to ~67 points. With the
+           concat fixed + voxel 0.5 m, the downsample cloud now flows (~1000 pts),
+           so NDT aligns. With ndt_enabled=false the pose_initializer never
+           activated the ndt_scan_matcher ("Node is not activated"), so the EKF
+           just held the raw initial pose with no map-relative correction. -->
+      <arg name="ndt_enabled" value="true"/>
       <arg name="yabloc_enabled" value="false"/>
       <arg name="gnss_enabled" value="$(var gnss_enabled)"/>
       <arg name="ekf_enabled" value="true"/>
