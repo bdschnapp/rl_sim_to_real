@@ -154,6 +154,11 @@ class ROSLineFollowingAdapter:
         # is applied DIRECTLY (reverse_steer_rate_sign = +1), matching native.
         # Live-tunable for A/B.
         self._reverse_native_obs = True
+        # Set by _local_centerline each tick: True when _orient_centerline_forward
+        # reversed the centerline array (truck driving against canonical lanelet
+        # direction). Reversing negates computed curvature, so get_observation
+        # undoes that on k1/k2 to keep their sign convention direction-independent.
+        self._centerline_reversed = False
 
     # ---------------------------------------------------------------- setters
     # All setters store ROS-frame state; get_observation() does a single
@@ -243,6 +248,23 @@ class ROSLineFollowingAdapter:
         # makes the reverse tractor-only policy steer away from centre. Skip the
         # negation entirely for tractor-only models (no hitch term exists).
         is_tractor_only = "TractorOnly" in self.env_class_name
+        # Undo the curvature-sign side effect of _orient_centerline_forward.
+        # When the truck drives AGAINST the canonical lanelet direction the
+        # centerline array is reversed so the curvature lookahead reads ahead;
+        # reversing a polyline NEGATES its signed curvature, which would leave
+        # k1/k2's sign inconsistent with e_y/e_psi (the rest of the Y-flipped
+        # obs) for that travel direction -> the policy turns the WRONG way at
+        # corners going one way down a bidirectional lane (forward AND reverse).
+        # Re-negate k1/k2 so their sign convention is independent of array order.
+        # Runs BEFORE the reverse un-mirror blocks below (which then apply their
+        # own convention on top). k1/k2 are the last two state dims before lidar.
+        if self._centerline_reversed:
+            n_state = 5 if is_tractor_only else 8
+            cvec = obs if isinstance(obs, np.ndarray) else (
+                obs.get("vector") if isinstance(obs, dict) else None)
+            if cvec is not None and cvec.shape[0] >= n_state:
+                cvec[n_state - 2] *= -1.0   # k1
+                cvec[n_state - 1] *= -1.0   # k2
         if self._is_reverse and not is_tractor_only:
             if isinstance(obs, np.ndarray):
                 obs[1] = -obs[1]
@@ -298,7 +320,8 @@ class ROSLineFollowingAdapter:
         # curvature lookahead always reads forward in array order, so we
         # must reverse the order before storing it, otherwise k1/k2 read
         # from cells behind the truck instead of ahead.
-        xs_local, ys_local = self._orient_centerline_forward(xs_local, ys_local)
+        xs_local, ys_local, self._centerline_reversed = \
+            self._orient_centerline_forward(xs_local, ys_local)
         return xs_local, ys_local
 
     @staticmethod
@@ -306,9 +329,9 @@ class ROSLineFollowingAdapter:
         """Reverse the centerline order if its local tangent at the truck
         (env origin) points in -X. Ensures the lane always flows AHEAD of
         the truck in env-frame, regardless of which way the truck is
-        driving along the canonical lanelet."""
+        driving along the canonical lanelet. Returns (xs, ys, reversed_bool)."""
         if xs_local.size < 2:
-            return xs_local, ys_local
+            return xs_local, ys_local, False
         # Nearest segment of centerline to the truck (at env origin).
         i = int(np.argmin(xs_local * xs_local + ys_local * ys_local))
         if 0 < i < xs_local.size - 1:
@@ -318,8 +341,8 @@ class ROSLineFollowingAdapter:
         else:
             dx_tan = xs_local[-1] - xs_local[-2]
         if dx_tan < 0.0:
-            return xs_local[::-1].copy(), ys_local[::-1].copy()
-        return xs_local, ys_local
+            return xs_local[::-1].copy(), ys_local[::-1].copy(), True
+        return xs_local, ys_local, False
 
     @staticmethod
     def _patch_vehicle_params(env):
