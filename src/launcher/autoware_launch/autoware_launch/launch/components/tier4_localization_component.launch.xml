@@ -3,15 +3,13 @@
   <arg name="loc_config_path" default="$(find-pkg-share autoware_launch)/config/localization"/>
   <arg name="pose_source" default="ndt" description="select pose_estimator: ndt, yabloc, eagleye"/>
   <arg name="twist_source" default="gyro_odom" description="select twist_estimator. gyro_odom, eagleye"/>
-  <!-- Single-lidar robot: feed NDT the front lidar's preprocessed cloud DIRECTLY
-       and bypass the concatenate node. The concatenate (PointCloudConcatenateData
-       Synchronizer) requires >=2 input topics and keys collectors by topic name,
-       so a single lidar (listed twice as a workaround) syncs racily — it dropped
-       to nullptr under the CPU load that ndt_align adds, hanging ndt_align and
-       stalling localization entirely. pointcloud_before_sync is the reliable
-       ring-outlier output (~6 Hz); NDT's util crop/downsample + scan matcher
-       handle the sensor->base_link->map TF themselves, so no concat is needed. -->
-    <arg name="input_pointcloud" default="/sensing/lidar/front/pointcloud_before_sync" description="The topic will be used in the localization util module"/>
+  <!-- Matches the working full stack (Electrans_project): NDT reads the
+       concatenated cloud (base_link frame, motion-compensated). Verified live on
+       Electrans: this topic runs ~3.5 Hz at ~0.4 s freshness and NDT converges in
+       1 iteration. The concat is re-enabled (use_concat_filter:=True in
+       lidar.launch.xml) — my earlier bypass was chasing a lag that was actually
+       caused by other divergences, not the concat itself. -->
+    <arg name="input_pointcloud" default="/sensing/lidar/concatenated/pointcloud" description="The topic will be used in the localization util module"/>
 
   <arg name="localization_pointcloud_container_name" default="/pointcloud_container" description="The target container to which pointcloud preprocessing nodes in localization be attached"/>
   <arg name="initial_pose" default="[]" description="initial pose (x, y, z, quat_x, quat_y, quat_z, quat_w)"/>

@@ -13,12 +13,9 @@
 
     sensor_points:
       # Tolerance of timestamp difference between current time and sensor pointcloud. [sec]
-      # Raised 1.0 -> 5.0: the single-lidar sensing chain runs ~1-2 s behind on the
-      # Jetson under load, so a 1.0 s gate made ndt_align reject every cloud as
-      # stale and hang at "Call align server". 5.0 s tolerates the lag for init
-      # (robot is stationary when the pose is set). Revisit once sensing latency is
-      # reduced (the concatenate node thrashing is a known contributor).
-      timeout_sec: 5.0
+      # 1.0 — matches Electrans (whose clouds run ~0.4 s fresh, well inside this).
+      # The lag that earlier forced 5.0 was the thrashing concat, now reverted.
+      timeout_sec: 1.0
 
       # Required distance of input sensor points. [m]
       # If the max distance of input sensor points is lower than this value, the scan matching will not be performed.
@@ -66,9 +63,8 @@
 
     validation:
       # Tolerance of timestamp difference between initial_pose and sensor pointcloud. [sec]
-      # Raised 1.0 -> 5.0 alongside sensor_points.timeout_sec (see note above): the
-      # laggy single-lidar chain otherwise fails the init-pose/cloud time match.
-      initial_pose_timeout_sec: 5.0
+      # 1.0 — matches Electrans (reverted from the 5.0 lag workaround).
+      initial_pose_timeout_sec: 1.0
 
       # Tolerance of distance difference between two initial poses used for linear interpolation. [m]
       initial_pose_distance_tolerance_m: 10.0
@@ -102,17 +98,11 @@
       converged_param_nearest_voxel_transformation_likelihood: 2.3
 
       # Scan matching score based on no ground LiDAR scan.
-      # Enabled for DIAGNOSTICS ONLY: this publishes transform_probability / NVTL
-      # computed on a ground-removed copy of the ALIGNED scan (topics
-      # no_ground_transform_probability / ..._nearest_voxel_transformation_
-      # likelihood). It does NOT change registration — setInputSource() still uses
-      # the full cloud (confirmed in ndt_scan_matcher_core.cpp). Use it to test the
-      # floorless-map hypothesis: if the normal NVTL is decent but the no-ground
-      # NVTL is much lower, the match is being carried by ground points the map
-      # doesn't have. The real ground-removal fix, if needed, is upstream (crop_box
-      # min_z) or adding a floor to the map.
+      # Disabled — matches Electrans. (It only publishes diagnostic no-ground
+      # scores; it does not affect registration. Re-enable if we ever need to
+      # diagnose ground-point pollution again.)
       no_ground_points:
-        enable: true
+        enable: false
 
         # If lidar_point.z - base_link.z <= this threshold , the point will be removed
         z_margin_for_ground_removal: 0.8

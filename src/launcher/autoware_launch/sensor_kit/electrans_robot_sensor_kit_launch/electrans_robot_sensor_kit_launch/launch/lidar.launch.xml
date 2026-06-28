@@ -1,17 +1,12 @@
 <launch>
   <arg name="launch_driver" default="true"/>
   <arg name="host_ip" default="192.168.1.102"/>
-  <!-- Single-lidar robot: the concatenate node has nothing to concatenate. With
-       the >=2-topic workaround it thrashed (constant "Reset oldest collector" +
-       "transformed_raw_points nullptr"), burning a CPU core in the sensing
-       container and lagging the WHOLE chain ~2.7 s. That made every NDT pose
-       arrive past the EKF's ~1 s compensation limit ("Pose delay exceeds ...
-       ignored"), so localization never corrected. Disabled: NDT reads
-       /sensing/lidar/front/pointcloud_before_sync directly (see
-       tier4_localization_component input_pointcloud); only RViz consumed the
-       concatenated topic. Re-enable + fix the matching_strategy if a 2nd lidar
-       is ever added. -->
-  <arg name="use_concat_filter" default="False"/>
+  <!-- True — matches Electrans, which runs this exact concat config (same
+       [0.0, 0.081] offset) and produces a fresh 3.5 Hz concatenated cloud at
+       load 39 with no thrashing. The thrashing I saw earlier in rl_sim was a
+       symptom of other divergences (voxel-0.5 NDT CPU + bypass), not the concat
+       config, which is byte-identical to Electrans's. -->
+  <arg name="use_concat_filter" default="True"/>
   <arg name="vehicle_id" default="$(env VEHICLE_ID default)"/>
   <arg name="vehicle_mirror_param_file"/>
   <arg name="pointcloud_container_name" default="pointcloud_container"/>

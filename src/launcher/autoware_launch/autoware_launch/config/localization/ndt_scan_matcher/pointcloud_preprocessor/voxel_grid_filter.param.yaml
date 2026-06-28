@@ -1,13 +1,10 @@
 /**:
   ros__parameters:
-    # 1.0 m: a middle ground. 3.0 m (Autoware default) collapsed each lab sweep to
-    # ~60 pts, too sparse to constrain x/y/yaw in the feature-poor, near-rectangular
-    # lab, so ndt_align converged to a WRONG pose (observed: stationary robot, no
-    # motion, yet the estimate was far off — so not a staleness artifact, a
-    # point-count one). 0.5 m gave ~1000 pts but drove NDT to ~242% CPU. Now that
-    # the thrashing concatenate node is disabled (use_concat_filter:=False) the
-    # freed core lets us afford ~several-hundred pts at 1.0 m — enough to constrain
-    # the alignment while keeping NDT light enough to publish in real time.
-    voxel_size_x: 1.0
-    voxel_size_y: 1.0
-    voxel_size_z: 1.0
+    # 3.0 m — identical to the working full stack (Electrans_project), which on
+    # this exact robot+map converges in 1 NDT iteration (NVTL 2.91) from ~123
+    # downsampled points. Verified live: point count was never the problem; my
+    # earlier 0.5/1.0 experiments were chasing a lag that was actually the
+    # thrashing concat. Keep this matched to Electrans.
+    voxel_size_x: 3.0
+    voxel_size_y: 3.0
+    voxel_size_z: 3.0
