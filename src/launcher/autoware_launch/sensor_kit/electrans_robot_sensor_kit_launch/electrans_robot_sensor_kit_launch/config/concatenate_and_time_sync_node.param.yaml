@@ -10,12 +10,16 @@
     publish_previous_but_late_pointcloud: false
     synchronized_pointcloud_postfix: pointcloud
     input_twist_topic_type: twist
-    input_topics: [
-                    "/sensing/lidar/front/pointcloud_before_sync",
-                                        "/sensing/lidar/front/pointcloud_before_sync",
-                ]
+    # SINGLE front lidar. This was previously listed TWICE with a 2-lidar
+    # matching strategy (offsets [0.0, 0.081]), so the synchronizer waited for a
+    # second cloud that never arrives → collectors piled to the limit ("Reset the
+    # oldest collector...") and the second slot stayed nullptr ("transformed_raw_
+    # points[...] is nullptr, skipping pointcloud publish") → the concatenated
+    # cloud (NDT's input) was dropped, starving localization. One topic, one
+    # offset.
+    input_topics: ["/sensing/lidar/front/pointcloud_before_sync"]
     output_frame: base_link
     matching_strategy:
       type: naive
-      lidar_timestamp_offsets: [0.0, 0.081]
-      lidar_timestamp_noise_window: [0.01, 0.01]
+      lidar_timestamp_offsets: [0.0]
+      lidar_timestamp_noise_window: [0.01]

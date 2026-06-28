@@ -1,7 +1,14 @@
 /**:
   ros__parameters:
     base_frame: base_link
-    use_imu: true
+    # use_imu MUST stay false: the Witmotion IMU on this robot is broken (never
+    # worked — driver Qt bug), so /sensing/imu/imu_data is stale/absent and the
+    # distortion corrector spammed "IMU time_stamp is too late. Could not
+    # interpolate" and degraded the cloud, starving NDT. With use_imu:false the
+    # corrector uses the wheel-odom twist for motion compensation (fine at lab
+    # speeds). NOTE: nebula_node_container loads THIS file (common_sensor_launch),
+    # not the electrans_robot_sensor_kit_launch copy — set it here.
+    use_imu: false
     use_3d_distortion_correction: false
     update_azimuth_and_distance: false
     processing_time_threshold_sec: 0.01
