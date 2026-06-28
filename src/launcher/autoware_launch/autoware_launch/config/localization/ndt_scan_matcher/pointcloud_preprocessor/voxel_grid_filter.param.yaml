@@ -1,11 +1,13 @@
 /**:
   ros__parameters:
-    # Lab-scale NDT scan downsample. The Autoware default 3.0 m voxel is sized for
-    # a ~100 m-range outdoor AV scan; on the 25x20 m MVSL lab (walls within ~10 m)
-    # it collapsed each sweep to ~67 points, far too few for NDT to align (NDT sat
-    # idle, "pose is not updated", so localization never corrected the initial
-    # pose). 0.5 m keeps the lab sweep at hundreds-to-thousands of points while
-    # staying light on the Jetson.
-    voxel_size_x: 0.5
-    voxel_size_y: 0.5
-    voxel_size_z: 0.5
+    # Autoware default 3.0 m, matching the working full-stack (Electrans_project).
+    # A finer voxel (tried 0.5 m) feeds NDT ~1000+ pts/scan against the 360k-pt map
+    # at 4 threads/10 Hz, which drove the ndt_scan_matcher to ~242% CPU and pushed
+    # the Jetson to load ~13. That CPU starvation backed the sensing pipeline up
+    # ~15 s, so ndt_align only ever saw stale clouds and hung at "Call align
+    # server" — i.e. the fine voxel broke localization via CPU, not via point
+    # count. 3.0 m keeps NDT light; with the restored height-fit the coarse sweep
+    # still aligns (same as Electrans).
+    voxel_size_x: 3.0
+    voxel_size_y: 3.0
+    voxel_size_z: 3.0
