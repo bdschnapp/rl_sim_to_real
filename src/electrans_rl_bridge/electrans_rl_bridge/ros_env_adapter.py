@@ -303,12 +303,18 @@ class ROSLineFollowingAdapter:
         # unconditionally just SWAPS which direction works. So apply the full
         # un-mirror ONLY when the centerline was reversed; the bridge mirrors this
         # by using forward_steer_rate_sign (+1) when reversed, -1 otherwise.
-        if ((not self._is_reverse) and is_tractor_only and self._forward_native_obs
+        if ((not self._is_reverse) and self._forward_native_obs
                 and self._centerline_reversed):
+            # Full un-mirror of the whole state vector + lidar. Works for both
+            # the 5-dim tractor-only layout [s,e_y,e_psi,k1,k2] and the 8-dim
+            # trailer layout [s,hitch,e_y,e_psi,e_y_t,e_psi_t,k1,k2] — negate all
+            # state dims (the Y-flip mirrored them all, incl the hitch angle) and
+            # reverse the lidar that follows.
+            n_state = 5 if is_tractor_only else 8
             vec = obs if isinstance(obs, np.ndarray) else obs.get("vector")
-            if vec is not None:
-                vec[0:5] *= -1.0
-                vec[5:] = vec[5:][::-1]
+            if vec is not None and vec.shape[0] >= n_state:
+                vec[0:n_state] *= -1.0
+                vec[n_state:] = vec[n_state:][::-1]
         return obs
 
     def _local_centerline(self):
