@@ -248,23 +248,17 @@ class ROSLineFollowingAdapter:
         # makes the reverse tractor-only policy steer away from centre. Skip the
         # negation entirely for tractor-only models (no hitch term exists).
         is_tractor_only = "TractorOnly" in self.env_class_name
-        # Undo the curvature-sign side effect of _orient_centerline_forward.
-        # When the truck drives AGAINST the canonical lanelet direction the
-        # centerline array is reversed so the curvature lookahead reads ahead;
-        # reversing a polyline NEGATES its signed curvature, which would leave
-        # k1/k2's sign inconsistent with e_y/e_psi (the rest of the Y-flipped
-        # obs) for that travel direction -> the policy turns the WRONG way at
-        # corners going one way down a bidirectional lane (forward AND reverse).
-        # Re-negate k1/k2 so their sign convention is independent of array order.
-        # Runs BEFORE the reverse un-mirror blocks below (which then apply their
-        # own convention on top). k1/k2 are the last two state dims before lidar.
-        if self._centerline_reversed:
-            n_state = 5 if is_tractor_only else 8
-            cvec = obs if isinstance(obs, np.ndarray) else (
-                obs.get("vector") if isinstance(obs, dict) else None)
-            if cvec is not None and cvec.shape[0] >= n_state:
-                cvec[n_state - 2] *= -1.0   # k1
-                cvec[n_state - 1] *= -1.0   # k2
+        # NOTE: an earlier "fix" (a421b81) negated k1/k2 whenever
+        # _orient_centerline_forward reversed the centerline array, on the theory
+        # that the reversal's curvature-sign flip was a spurious indexing artifact.
+        # That was WRONG: when the truck drives AGAINST the canonical lanelet
+        # direction the corner is genuinely the opposite-handed turn, so the
+        # reversal's sign flip is CORRECT (it yields the curvature as-traveled).
+        # Negating it equalised the curvature sign for both travel directions, so
+        # the policy turned the same way both ways -> correct one direction, drove
+        # into the wall the other. Reverted: keep the array-reversal's curvature
+        # sign. (Sim 2026-06-28: working k1 and failing k1 were BOTH -0.30 at the
+        # same corner with the negation on; they must be opposite.)
         if self._is_reverse and not is_tractor_only:
             if isinstance(obs, np.ndarray):
                 obs[1] = -obs[1]
