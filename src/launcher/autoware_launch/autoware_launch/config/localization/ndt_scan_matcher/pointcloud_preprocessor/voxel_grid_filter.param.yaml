@@ -1,13 +1,13 @@
 /**:
   ros__parameters:
-    # Autoware default 3.0 m, matching the working full-stack (Electrans_project).
-    # A finer voxel (tried 0.5 m) feeds NDT ~1000+ pts/scan against the 360k-pt map
-    # at 4 threads/10 Hz, which drove the ndt_scan_matcher to ~242% CPU and pushed
-    # the Jetson to load ~13. That CPU starvation backed the sensing pipeline up
-    # ~15 s, so ndt_align only ever saw stale clouds and hung at "Call align
-    # server" — i.e. the fine voxel broke localization via CPU, not via point
-    # count. 3.0 m keeps NDT light; with the restored height-fit the coarse sweep
-    # still aligns (same as Electrans).
-    voxel_size_x: 3.0
-    voxel_size_y: 3.0
-    voxel_size_z: 3.0
+    # 1.0 m: a middle ground. 3.0 m (Autoware default) collapsed each lab sweep to
+    # ~60 pts, too sparse to constrain x/y/yaw in the feature-poor, near-rectangular
+    # lab, so ndt_align converged to a WRONG pose (observed: stationary robot, no
+    # motion, yet the estimate was far off — so not a staleness artifact, a
+    # point-count one). 0.5 m gave ~1000 pts but drove NDT to ~242% CPU. Now that
+    # the thrashing concatenate node is disabled (use_concat_filter:=False) the
+    # freed core lets us afford ~several-hundred pts at 1.0 m — enough to constrain
+    # the alignment while keeping NDT light enough to publish in real time.
+    voxel_size_x: 1.0
+    voxel_size_y: 1.0
+    voxel_size_z: 1.0
