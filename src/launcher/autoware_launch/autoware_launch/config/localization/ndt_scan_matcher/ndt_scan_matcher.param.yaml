@@ -28,8 +28,11 @@
       # The newton line search maximum step length
       step_size: 0.1
 
-      # The ND voxel grid resolution
-      resolution: 2.0
+      # The ND voxel grid resolution. 2.0 m (outdoor AV default) is coarse for
+      # the 25x20 m lab — it voxelized the map down to ~213 ND cells near the
+      # pose. 1.0 m gives a finer map representation (the lab map has ~360 pts/m^3
+      # so cells stay well-populated) and better pose precision indoors.
+      resolution: 1.0
 
       # The number of iterations required to calculate alignment
       max_iterations: 30

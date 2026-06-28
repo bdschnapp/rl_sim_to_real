@@ -1,5 +1,11 @@
 /**:
   ros__parameters:
-    voxel_size_x: 3.0
-    voxel_size_y: 3.0
-    voxel_size_z: 3.0
+    # Lab-scale NDT scan downsample. The Autoware default 3.0 m voxel is sized for
+    # a ~100 m-range outdoor AV scan; on the 25x20 m MVSL lab (walls within ~10 m)
+    # it collapsed each sweep to ~67 points, far too few for NDT to align (NDT sat
+    # idle, "pose is not updated", so localization never corrected the initial
+    # pose). 0.5 m keeps the lab sweep at hundreds-to-thousands of points while
+    # staying light on the Jetson.
+    voxel_size_x: 0.5
+    voxel_size_y: 0.5
+    voxel_size_z: 0.5
