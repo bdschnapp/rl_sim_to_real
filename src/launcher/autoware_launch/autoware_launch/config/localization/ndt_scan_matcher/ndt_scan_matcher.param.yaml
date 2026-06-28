@@ -13,7 +13,12 @@
 
     sensor_points:
       # Tolerance of timestamp difference between current time and sensor pointcloud. [sec]
-      timeout_sec: 1.0
+      # Raised 1.0 -> 5.0: the single-lidar sensing chain runs ~1-2 s behind on the
+      # Jetson under load, so a 1.0 s gate made ndt_align reject every cloud as
+      # stale and hang at "Call align server". 5.0 s tolerates the lag for init
+      # (robot is stationary when the pose is set). Revisit once sensing latency is
+      # reduced (the concatenate node thrashing is a known contributor).
+      timeout_sec: 5.0
 
       # Required distance of input sensor points. [m]
       # If the max distance of input sensor points is lower than this value, the scan matching will not be performed.
@@ -61,7 +66,9 @@
 
     validation:
       # Tolerance of timestamp difference between initial_pose and sensor pointcloud. [sec]
-      initial_pose_timeout_sec: 1.0
+      # Raised 1.0 -> 5.0 alongside sensor_points.timeout_sec (see note above): the
+      # laggy single-lidar chain otherwise fails the init-pose/cloud time match.
+      initial_pose_timeout_sec: 5.0
 
       # Tolerance of distance difference between two initial poses used for linear interpolation. [m]
       initial_pose_distance_tolerance_m: 10.0

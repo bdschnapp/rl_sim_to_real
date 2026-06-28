@@ -11,7 +11,7 @@
        stalling localization entirely. pointcloud_before_sync is the reliable
        ring-outlier output (~6 Hz); NDT's util crop/downsample + scan matcher
        handle the sensor->base_link->map TF themselves, so no concat is needed. -->
-    <arg name="input_pointcloud" default="/sensing/lidar/concatenated/pointcloud" description="The topic will be used in the localization util module"/>
+    <arg name="input_pointcloud" default="/sensing/lidar/front/pointcloud_before_sync" description="The topic will be used in the localization util module"/>
 
   <arg name="localization_pointcloud_container_name" default="/pointcloud_container" description="The target container to which pointcloud preprocessing nodes in localization be attached"/>
   <arg name="initial_pose" default="[]" description="initial pose (x, y, z, quat_x, quat_y, quat_z, quat_w)"/>
@@ -98,4 +98,11 @@
       <arg name="ar_tag_based_localizer_param_path" value="$(var loc_config_path)/ar_tag_based_localizer.param.yaml"/>
     </include>
   </group>
+
+  <!-- Bridges RViz /initialpose → /map/map_height_fitter/service → /localization/
+       initialize (replicates the removed InitialPoseAdaptor: height-fit + RViz
+       particle covariance + AUTO). Lives here, in the always-launched
+       localization component, rather than in electrans_rl_bridge.launch.xml, so
+       it runs even when the RL bridge is disabled (RL=0 / control:=false). -->
+  <node pkg="electrans_rl_bridge" exec="initialpose_shim" name="initialpose_shim" output="screen"/>
 </launch>

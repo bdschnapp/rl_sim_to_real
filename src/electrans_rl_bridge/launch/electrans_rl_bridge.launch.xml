@@ -54,10 +54,11 @@
        recognition is also publishing onto that topic (real-robot setups). -->
   <arg name="relay_bev_to_rviz_panel" default="false"/>
 
-  <!-- Bridges RViz /initialpose → autoware pose-initializer service. Needed
-       because default_adapi_universe (which used to do this) was deleted with
-       the lifecycle stack. -->
-  <node pkg="electrans_rl_bridge" exec="initialpose_shim" name="initialpose_shim" output="screen"/>
+  <!-- NOTE: initialpose_shim moved to the localization component
+       (tier4_localization_component.launch.xml) so it runs even with the RL
+       bridge disabled (RL=0 / control:=false). It's a localization helper, not
+       an RL component — gating it on control meant RL=0 localization tests had
+       no way to forward /initialpose and NDT init never fired. -->
 
   <node pkg="electrans_rl_bridge" exec="lane_reference_node" name="lane_reference_node" output="screen">
     <param name="map_path" value="$(var map_path)"/>
