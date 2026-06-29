@@ -42,11 +42,18 @@ from autoware_internal_localization_msgs.srv import (
 INIT_SERVICE = "/localization/initialize"
 FIT_SERVICE = "/map/map_height_fitter/service"
 
-# InitialPoseAdaptor's initial_pose_particle_covariance (initial_pose.param.yaml):
-# row-major 6x6, diag [x=4, y=4, z=0.01, roll=0.01, pitch=0.01, yaw=1.0].
+# Initial-pose covariance handed to /localization/initialize. ndt_align derives
+# the TPE particle SEARCH RADIUS from this: stddev_xy = sqrt(cov_xy). Upstream
+# default is 4.0 (std 2 m → the particle cloud spans ~±5 m), which wastes the
+# search on a huge region. We trust the RViz click to ~1 m, so cov_xy=1.0
+# (std 1 m → ~±2 m) focuses the search → far fewer particles needed, faster
+# convergence, and a tighter (more accurate) result. z/roll/pitch stay tight
+# (height-fit + flat floor pin them). NOTE: yaw is NOT controlled here — ndt_align
+# samples yaw uniformly over ±π regardless (hardcoded in the TPE), so the heading
+# is still brute-forced; see the separate yaw-constraint patch.
 RVIZ_PARTICLE_COVARIANCE = [
-    4.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-    0.0, 4.0, 0.0, 0.0, 0.0, 0.0,
+    1.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+    0.0, 1.0, 0.0, 0.0, 0.0, 0.0,
     0.0, 0.0, 0.01, 0.0, 0.0, 0.0,
     0.0, 0.0, 0.0, 0.01, 0.0, 0.0,
     0.0, 0.0, 0.0, 0.0, 0.01, 0.0,

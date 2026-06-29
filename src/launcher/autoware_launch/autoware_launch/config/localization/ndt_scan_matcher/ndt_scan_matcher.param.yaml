@@ -41,8 +41,12 @@
       # The number of iterations required to calculate alignment
       max_iterations: 30
 
-      # Number of threads used for parallel computing
-      num_threads: 4
+      # Number of threads used for parallel computing.
+      # 8 = all Jetson Orin cores (nproc=8). Each NDT align() is internally
+      # multi-threaded, so this directly speeds up both the ~200-particle ndt_align
+      # init loop and per-tick matching. (If ongoing localization ever starves the
+      # sensing/RL load with the full stack on, drop to ~6.)
+      num_threads: 8
 
       regularization:
         enable: false
@@ -52,8 +56,12 @@
 
 
     initial_pose_estimation:
-      # The number of particles to estimate initial pose
-      particles_num: 200
+      # The number of particles to estimate initial pose.
+      # 100 (was 200): with the shim's tightened initial covariance the x/y search
+      # radius shrank ~2x, so half the particles give the same density and the init
+      # runs ~2x faster. (Can't go much lower while yaw is still searched over the
+      # full ±π — see the yaw-constraint patch; with that, ~50 would suffice.)
+      particles_num: 100
 
       # The number of initial random trials in the TPE (Tree-Structured Parzen Estimator).
       # This value should be equal to or less than 'initial_estimate_particles_num' and more than 0.
