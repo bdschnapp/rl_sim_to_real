@@ -1,16 +1,16 @@
 <launch>
   <arg name="launch_driver" default="true"/>
   <arg name="host_ip" default="192.168.1.102"/>
-  <!-- False — single-lidar robot, so the concatenate node has nothing to merge.
-       Its >=2-topic duplicate-topic workaround spams the logs ("Reset oldest
-       collector" / "transformed_raw_points nullptr") and burns a core, and it
-       only republished ~3.5 Hz vs the 10 Hz of pointcloud_before_sync. Disabled
-       to quiet + lighten the system; NDT reads pointcloud_before_sync directly
-       (see tier4_localization_component input_pointcloud). The localization stack
-       was first validated with the concat ON (matching Electrans) before this
-       switch, so we know the rest is sound. Re-enable + fix matching_strategy if
-       a 2nd lidar is ever added. -->
-  <arg name="use_concat_filter" default="False"/>
+  <!-- True. NOTE: do not naively disable this on the single-lidar robot. Tried it
+       (NDT reading pointcloud_before_sync directly) and ongoing localization broke:
+       NDT poses arrived ~1.7 s delayed and the EKF rejected them all ("Pose delay
+       exceeds the compensation limit, ignored"). The concat is doing double duty
+       here — it rate-limits the 10 Hz sweep down to ~3.5 Hz (which is what the
+       localization crop/downsample/NDT chain can keep up with) AND re-stamps via
+       motion compensation. Feeding NDT raw 10 Hz overwhelmed the preprocessing.
+       To remove it, first add a throttle/re-stamp on pointcloud_before_sync. The
+       log spam is the cost of keeping localization working. -->
+  <arg name="use_concat_filter" default="True"/>
   <arg name="vehicle_id" default="$(env VEHICLE_ID default)"/>
   <arg name="vehicle_mirror_param_file"/>
   <arg name="pointcloud_container_name" default="pointcloud_container"/>

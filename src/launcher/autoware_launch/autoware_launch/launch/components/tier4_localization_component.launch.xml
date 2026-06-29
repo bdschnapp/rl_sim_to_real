@@ -3,15 +3,12 @@
   <arg name="loc_config_path" default="$(find-pkg-share autoware_launch)/config/localization"/>
   <arg name="pose_source" default="ndt" description="select pose_estimator: ndt, yabloc, eagleye"/>
   <arg name="twist_source" default="gyro_odom" description="select twist_estimator. gyro_odom, eagleye"/>
-  <!-- Single-lidar bypass: read the front lidar's preprocessed cloud directly
-       instead of the concatenated topic (the concat node is disabled —
-       use_concat_filter:=False in lidar.launch.xml). pointcloud_before_sync is the
-       ring-outlier output at ~10 Hz (vs the concat's lossy ~3.5 Hz). It's in the
-       rslidar_front frame, but the localization util crop_box (input_frame=
-       base_link) transforms it to base_link before the z-crop/downsample, so the
-       z-band crop and NDT still operate in base_link exactly as before. Validated
-       with the concat ON first; switched after to quiet + lighten the system. -->
-    <arg name="input_pointcloud" default="/sensing/lidar/front/pointcloud_before_sync" description="The topic will be used in the localization util module"/>
+  <!-- Concatenated cloud (base_link, motion-compensated, ~3.5 Hz). Do NOT switch
+       this to pointcloud_before_sync to drop the concat — tried it and NDT poses
+       came in ~1.7 s delayed (EKF rejected them), because raw 10 Hz overwhelms the
+       crop/downsample/NDT chain. The concat's rate-limit + re-stamp is what keeps
+       this working. See use_concat_filter note in lidar.launch.xml. -->
+    <arg name="input_pointcloud" default="/sensing/lidar/concatenated/pointcloud" description="The topic will be used in the localization util module"/>
 
   <arg name="localization_pointcloud_container_name" default="/pointcloud_container" description="The target container to which pointcloud preprocessing nodes in localization be attached"/>
   <arg name="initial_pose" default="[]" description="initial pose (x, y, z, quat_x, quat_y, quat_z, quat_w)"/>
