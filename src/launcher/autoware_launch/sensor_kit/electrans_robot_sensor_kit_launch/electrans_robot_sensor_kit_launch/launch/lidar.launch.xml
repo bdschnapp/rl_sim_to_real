@@ -1,12 +1,16 @@
 <launch>
   <arg name="launch_driver" default="true"/>
   <arg name="host_ip" default="192.168.1.102"/>
-  <!-- True — matches Electrans, which runs this exact concat config (same
-       [0.0, 0.081] offset) and produces a fresh 3.5 Hz concatenated cloud at
-       load 39 with no thrashing. The thrashing I saw earlier in rl_sim was a
-       symptom of other divergences (voxel-0.5 NDT CPU + bypass), not the concat
-       config, which is byte-identical to Electrans's. -->
-  <arg name="use_concat_filter" default="True"/>
+  <!-- False — single-lidar robot, so the concatenate node has nothing to merge.
+       Its >=2-topic duplicate-topic workaround spams the logs ("Reset oldest
+       collector" / "transformed_raw_points nullptr") and burns a core, and it
+       only republished ~3.5 Hz vs the 10 Hz of pointcloud_before_sync. Disabled
+       to quiet + lighten the system; NDT reads pointcloud_before_sync directly
+       (see tier4_localization_component input_pointcloud). The localization stack
+       was first validated with the concat ON (matching Electrans) before this
+       switch, so we know the rest is sound. Re-enable + fix matching_strategy if
+       a 2nd lidar is ever added. -->
+  <arg name="use_concat_filter" default="False"/>
   <arg name="vehicle_id" default="$(env VEHICLE_ID default)"/>
   <arg name="vehicle_mirror_param_file"/>
   <arg name="pointcloud_container_name" default="pointcloud_container"/>
