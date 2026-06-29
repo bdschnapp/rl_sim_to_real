@@ -1089,16 +1089,22 @@ std::tuple<geometry_msgs::msg::PoseWithCovarianceStamped, double> NDTScanMatcher
   const double stddev_z = std::sqrt(covariance(2, 2));
   const double stddev_roll = std::sqrt(covariance(3, 3));
   const double stddev_pitch = std::sqrt(covariance(4, 4));
+  const double stddev_yaw = std::sqrt(covariance(5, 5));
 
-  // Since only yaw is uniformly sampled, we define the mean and standard deviation for the others.
+  // Provide a mean+stddev for ALL 6 dims, including yaw, so the TPE samples yaw
+  // from a normal around the initial heading (constrained orientation search)
+  // rather than uniformly over the full circle. The yaw stddev comes from the
+  // initial-pose covariance yaw term (set by initialpose_shim).
   const std::vector<double> sample_mean{
     initial_pose_with_cov.pose.pose.position.x,  // trans_x
     initial_pose_with_cov.pose.pose.position.y,  // trans_y
     initial_pose_with_cov.pose.pose.position.z,  // trans_z
     base_rpy.x,                                  // angle_x
-    base_rpy.y                                   // angle_y
+    base_rpy.y,                                  // angle_y
+    base_rpy.z                                   // angle_z (yaw) — constrains the heading search
   };
-  const std::vector<double> sample_stddev{stddev_x, stddev_y, stddev_z, stddev_roll, stddev_pitch};
+  const std::vector<double> sample_stddev{stddev_x,    stddev_y,     stddev_z,
+                                          stddev_roll, stddev_pitch, stddev_yaw};
 
   // Optimizing (x, y, z, roll, pitch, yaw) 6 dimensions.
   TreeStructuredParzenEstimator tpe(

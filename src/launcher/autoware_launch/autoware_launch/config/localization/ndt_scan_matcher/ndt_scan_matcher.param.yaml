@@ -57,16 +57,17 @@
 
     initial_pose_estimation:
       # The number of particles to estimate initial pose.
-      # 100 (was 200): with the shim's tightened initial covariance the x/y search
-      # radius shrank ~2x, so half the particles give the same density and the init
-      # runs ~2x faster. (Can't go much lower while yaw is still searched over the
-      # full ±π — see the yaw-constraint patch; with that, ~50 would suffice.)
-      particles_num: 100
+      # 50 (was 200): now that BOTH x/y (±1 m) and yaw (±~30 deg, via the TPE
+      # yaw-constraint patch) are tightly bounded, the search volume is tiny and 50
+      # particles cover it densely. Combined with num_threads=8 this should bring
+      # init to roughly ~1 s.
+      particles_num: 50
 
       # The number of initial random trials in the TPE (Tree-Structured Parzen Estimator).
-      # This value should be equal to or less than 'initial_estimate_particles_num' and more than 0.
-      # If it is equal to 'initial_estimate_particles_num', the search will be the same as a full random search.
-      n_startup_trials: 100
+      # 20 (was 100): with particles_num=50, keep most of the budget for the
+      # TPE-guided (acquisition) phase instead of pure random — when
+      # n_startup_trials >= particles_num the whole search is just random sampling.
+      n_startup_trials: 20
 
 
     validation:

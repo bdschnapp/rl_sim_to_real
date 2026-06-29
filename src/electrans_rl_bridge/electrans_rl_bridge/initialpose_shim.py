@@ -43,21 +43,21 @@ INIT_SERVICE = "/localization/initialize"
 FIT_SERVICE = "/map/map_height_fitter/service"
 
 # Initial-pose covariance handed to /localization/initialize. ndt_align derives
-# the TPE particle SEARCH RADIUS from this: stddev_xy = sqrt(cov_xy). Upstream
-# default is 4.0 (std 2 m → the particle cloud spans ~±5 m), which wastes the
-# search on a huge region. We trust the RViz click to ~1 m, so cov_xy=1.0
-# (std 1 m → ~±2 m) focuses the search → far fewer particles needed, faster
-# convergence, and a tighter (more accurate) result. z/roll/pitch stay tight
-# (height-fit + flat floor pin them). NOTE: yaw is NOT controlled here — ndt_align
-# samples yaw uniformly over ±π regardless (hardcoded in the TPE), so the heading
-# is still brute-forced; see the separate yaw-constraint patch.
+# the TPE particle SEARCH spread from sqrt(cov) per axis:
+#   x,y = 0.25 -> std 0.5 m  -> search ~±1 m   (trust the RViz click to ~0.5 m)
+#   yaw = 0.12 -> std ~20 deg -> search ~±30-40 deg around the clicked heading
+# This is the tightened search. The yaw term only bites because the TPE was
+# patched to sample yaw ~ normal(initial_yaw, std) instead of uniform(-pi,pi)
+# (autoware_localization_util/tree_structured_parzen_estimator.cpp +
+# ndt_scan_matcher_core.cpp passing a 6th yaw element). z/roll/pitch stay tight
+# (height-fit + flat floor pin them). Widen cov if you ever init from a poor guess.
 RVIZ_PARTICLE_COVARIANCE = [
-    1.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-    0.0, 1.0, 0.0, 0.0, 0.0, 0.0,
+    0.25, 0.0, 0.0, 0.0, 0.0, 0.0,
+    0.0, 0.25, 0.0, 0.0, 0.0, 0.0,
     0.0, 0.0, 0.01, 0.0, 0.0, 0.0,
     0.0, 0.0, 0.0, 0.01, 0.0, 0.0,
     0.0, 0.0, 0.0, 0.0, 0.01, 0.0,
-    0.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+    0.0, 0.0, 0.0, 0.0, 0.0, 0.12,
 ]
 
 
