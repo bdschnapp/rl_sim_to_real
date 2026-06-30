@@ -248,52 +248,40 @@ class ROSLineFollowingAdapter:
                else self.env)
         self._apply_state_to(env, xs_local, ys_local)
         obs = env._get_obs()
-        # Empirically, the reverse policy needs the β observation in the
-        # un-flipped (real-world) sign, while the forward policy needs it
-        # in the Y-flipped sign that naturally falls out of the env-frame
-        # mirror. The two policies were trained from the same env-class
-        # definition, but evidently have an asymmetric β-sign convention
-        # baked in. Until we identify the training-time cause, conditionally
-        # negate the β obs only in reverse mode — env geometry (trailer
-        # position, lidar mount) stays Y-flipped for both.
+        # Reverse un-mirror: the deploy env-frame transform (-yaw+pi rotation +
+        # Y-flip) produces the FULL MIRROR of the native build_observation obs.
+        # Bring it back to the native training convention by negating the lateral
+        # /curvature state dims and reversing the lidar beam order. obs[0] (steer)
+        # is deliberately LEFT as the env's -measured value: combined with
+        # reverse_steer_rate_sign=-1 it already equals the native steering state
+        # (-measured = +∫action), so the steering-state loop stays consistent.
+        # (Negating obs[0] too forces action sign +1, inverting the physical turn
+        # -> divergence; not negating k1/k2 leaves the wrong curvature sign on
+        # curves -> oscillation; not reversing the lidar gives wrong left/right
+        # when off-centre -> drift. This makes ALL obs components native + correct turn.)
         #
-        # IMPORTANT: obs[1] is β (hitch) ONLY in the TRAILER layout
-        # [s, β, e_y, ...]. The TRACTOR-ONLY layout is [s, e_y, e_ψ, k1, k2]
-        # — obs[1] is the CROSS-TRACK error there, so negating it flips e_y and
-        # makes the reverse tractor-only policy steer away from centre. Skip the
-        # negation entirely for tractor-only models (no hitch term exists).
+        # State layout depends on vehicle kind, so the negated slice does too:
+        #   tractor-only (5): [s, e_y, e_psi, k1, k2]                  -> negate [1:5]
+        #   trailer      (8): [s, hitch, e_y, e_psi, e_y_t, e_psi_t, k1, k2] -> [1:8]
+        # then reverse the lidar that follows. Proven on reverse tractor-only (clean
+        # straight line, 2026-06-28); generalized to the 8-dim trailer layout
+        # 2026-06-29 (was a partial hitch-only obs[1] negation that left e_y/e_psi/
+        # trailer-error/curvature/lidar in the wrong mirror convention).
+        #
+        # NOTE: do NOT re-negate k1/k2 on centerline reversal here. An earlier "fix"
+        # (a421b81) did, theorizing the reversal's curvature-sign flip was a spurious
+        # indexing artifact. WRONG: driving AGAINST the canonical lanelet direction is
+        # genuinely the opposite-handed turn, so that sign is correct (curvature as-
+        # traveled). (Sim 2026-06-28: working and failing k1 were BOTH -0.30 at the
+        # same corner with the negation on; they must differ.)
         is_tractor_only = "TractorOnly" in self.env_class_name
-        # NOTE: an earlier "fix" (a421b81) negated k1/k2 whenever
-        # _orient_centerline_forward reversed the centerline array, on the theory
-        # that the reversal's curvature-sign flip was a spurious indexing artifact.
-        # That was WRONG: when the truck drives AGAINST the canonical lanelet
-        # direction the corner is genuinely the opposite-handed turn, so the
-        # reversal's sign flip is CORRECT (it yields the curvature as-traveled).
-        # Negating it equalised the curvature sign for both travel directions, so
-        # the policy turned the same way both ways -> correct one direction, drove
-        # into the wall the other. Reverted: keep the array-reversal's curvature
-        # sign. (Sim 2026-06-28: working k1 and failing k1 were BOTH -0.30 at the
-        # same corner with the negation on; they must be opposite.)
-        if self._is_reverse and not is_tractor_only:
-            if isinstance(obs, np.ndarray):
-                obs[1] = -obs[1]
-            elif isinstance(obs, dict) and "vector" in obs:
-                obs["vector"][1] = -obs["vector"][1]
-        # Reverse tractor-only: un-mirror the LATERAL obs back to the native
-        # training convention. Negate obs[1:5] (e_y, e_psi, k1, k2) and reverse
-        # the lidar beam order. obs[0] (steer) is deliberately LEFT as the env's
-        # -measured value: combined with reverse_steer_rate_sign=-1 it already
-        # equals the native steering state (-measured = +∫action), so the
-        # steering-state loop stays consistent. (Negating obs[0] too forces
-        # action sign +1, which inverts the physical turn -> divergence; not
-        # negating k1/k2 leaves the wrong curvature sign on curves -> oscillation;
-        # not reversing the lidar gives wrong left/right when off-centre -> drift.
-        # This combination makes ALL obs components native with the correct turn.)
-        if self._is_reverse and is_tractor_only and self._reverse_native_obs:
-            vec = obs if isinstance(obs, np.ndarray) else obs.get("vector")
-            if vec is not None:
-                vec[1:5] *= -1.0
-                vec[5:] = vec[5:][::-1]
+        if self._is_reverse and self._reverse_native_obs:
+            n_state = 5 if is_tractor_only else 8
+            vec = obs if isinstance(obs, np.ndarray) else (
+                obs.get("vector") if isinstance(obs, dict) else None)
+            if vec is not None and vec.shape[0] >= n_state:
+                vec[1:n_state] *= -1.0
+                vec[n_state:] = vec[n_state:][::-1]
         # Forward tractor-only: the correct convention DEPENDS on whether
         # _orient_centerline_forward reversed the centerline array (i.e. which way
         # the truck drives the bidirectional lane). Sim 2026-06-28: the mirror
