@@ -282,6 +282,22 @@ class ROSLineFollowingAdapter:
             if vec is not None and vec.shape[0] >= n_state:
                 vec[1:n_state] *= -1.0
                 vec[n_state:] = vec[n_state:][::-1]
+                # TRAILER ONLY (n_state==8): keep the trailer PATH errors
+                # (e_y_t=idx4, e_psi_t=idx5) in the mirrored steering frame
+                # instead of un-mirroring them to native. The steering enters the
+                # policy mirrored (obs[0]=-steer, which the truck tolerates), so
+                # the trailer's lateral/heading errors must share that frame to be
+                # consistent with the hitch's effective control direction. Leaving
+                # them native made them contradict the hitch, so the policy got
+                # conflicting signals and did nothing to stabilize the hitch on a
+                # straight. Validated in RViz sim 2026-06-30: this is markedly the
+                # best variant (the truck steering loop stays -steer/sign-1 intact;
+                # re-mirroring the hitch instead was clearly worse). Residual
+                # tracking gap is model-side (Stage-3 retrain). Truck n_state==5
+                # has no trailer dims -> untouched.
+                if not is_tractor_only:
+                    vec[4] *= -1.0   # e_y_t
+                    vec[5] *= -1.0   # e_psi_t
         # Forward tractor-only: the correct convention DEPENDS on whether
         # _orient_centerline_forward reversed the centerline array (i.e. which way
         # the truck drives the bidirectional lane). Sim 2026-06-28: the mirror
