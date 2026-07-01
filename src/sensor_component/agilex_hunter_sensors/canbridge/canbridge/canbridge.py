@@ -23,6 +23,15 @@ class CANParser(Node):
     # dead-reckoning lag. Applied symmetrically to feedback (raw -> m/s) and
     # commands (m/s -> CAN units) so commanded speeds are executed 1:1.
     SPEED_SCALE = 1.88
+    # The CAN steering field is NOT milli-rad of tire angle either: calibrated
+    # 2026-07-01 with a constant-steering full circle (gyro/NDT agreed on 362
+    # deg within 0.5%). Reported 0.637 "rad" drove a 1.46 m radius turn ->
+    # true tire angle atan(0.65/1.46) = 0.419 rad. True = raw/1000 x 0.657.
+    # Physical lock is ~±637 raw units = ±0.42 rad true, matching the
+    # vehicle_info max_steer_angle (0.436) closely. Applied symmetrically:
+    # feedback reports true tire rad (so RL obs[0] and heading_rate are
+    # correct) and commands are converted from true tire rad to CAN units.
+    STEER_SCALE = 0.657
     HUNTER_MODE_STANDBY = 0x00
     HUNTER_MODE_CAN_CONTROL = 0x01
     HUNTER_MODE_REMOTE = 0x02
@@ -115,7 +124,7 @@ class CANParser(Node):
             self.steeringFeedback = (payload[6] << 8) | payload[7]
             if self.steeringFeedback >= 0x8000:
                 self.steeringFeedback -= 0x10000
-            self.steeringFeedback /= 1000  # in Rad
+            self.steeringFeedback = self.steeringFeedback / 1000 * self.STEER_SCALE  # true tire rad
             toSendSteering.stamp = self.get_clock().now().to_msg()
 
             # self.get_logger().info(
@@ -164,11 +173,13 @@ class CANParser(Node):
         if velocity < 0:
             self.toSendSpeed = -self.toSendSpeed
 
-        # Map full Autoware steering range (±0.436 rad ≈ ±25°) to full hardware
-        # range (±576 CAN units). Previously used 576x which only reached ~44%
-        # of hardware steering at max command. Clamp for safety.
-        max_turn = 576  # CAN units, hardware limit
-        self.toSendTurn = int(steering_angle * 1320)
+        # Convert commanded true tire angle [rad] to CAN units via the
+        # calibrated STEER_SCALE (raw units = rad/0.657*1000 ~= 1522x). The old
+        # empirical 1320x under-delivered: a full 0.436 rad command produced
+        # only ~0.38 rad true tire angle. Cap at the observed physical lock
+        # (±637 raw units, RC full-lock feedback); firmware clamps beyond.
+        max_turn = 640  # CAN units ~= physical lock (0.42 rad true)
+        self.toSendTurn = int(steering_angle * 1000 / self.STEER_SCALE)
         if self.toSendTurn > max_turn:
             self.toSendTurn = max_turn
         elif self.toSendTurn < -max_turn:
