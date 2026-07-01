@@ -1,5 +1,14 @@
 <launch>
+  <!-- Driver OFF by default (2026-07-01): the lab robot runs indoors with no
+       GNSS fix ever used (pose_twist_estimator gnss_enabled=false), and the
+       u-blox serial device wedges the node into an error flood
+       ("U-Blox ASIO input buffer read error: End of file") that bloats logs
+       and burns CPU. The gnss_poser below stays (harmless without input) so
+       the topic graph is unchanged. Set launch_gnss_driver:=true if a real
+       receiver is ever connected. -->
   <arg name="launch_driver" default="true"/>
+  <arg name="launch_gnss_driver" default="false"/>
+  <let name="gnss_driver_on" value="$(eval &quot;'$(var launch_driver)'=='true' and '$(var launch_gnss_driver)'=='true'&quot;)"/>
   <arg name="gnss_receiver" default="ublox" description="ublox(default) or septentrio"/>
 
   <group>
@@ -12,7 +21,7 @@
 
     <!-- Ublox Driver -->
     <group if="$(eval &quot;'$(var gnss_receiver)'=='ublox'&quot;)">
-      <node pkg="ublox_gps" name="ublox" exec="ublox_gps_node" if="$(var launch_driver)">
+      <node pkg="ublox_gps" name="ublox" exec="ublox_gps_node" if="$(var gnss_driver_on)">
         <remap from="~/fix" to="~/nav_sat_fix"/>
         <param from="$(find-pkg-share ublox_gps)/config/zed_f9p.yaml"/>
         <!-- zed_f9p.yaml is scoped under 'ublox_gps_node:' but this node is named 'ublox',

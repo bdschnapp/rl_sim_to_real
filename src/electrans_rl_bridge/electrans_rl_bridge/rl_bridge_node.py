@@ -41,7 +41,7 @@ from sensor_msgs.msg import Image
 from std_msgs.msg import Bool, Float32MultiArray
 
 from autoware_control_msgs.msg import Control
-from autoware_vehicle_msgs.msg import GearCommand, SteeringReport, TrailerState
+from autoware_vehicle_msgs.msg import ControlModeReport, GearCommand, SteeringReport, TrailerState
 
 from electrans_rl_bridge.ros_env_adapter import install_e2e_rl_on_path, ROSLineFollowingAdapter
 
@@ -525,6 +525,14 @@ class RLBridgeNode(Node):
         self._drive_reverse: bool = False
         self._target_steering: float = 0.0       # integrated from action[0]
         self._dt = 1.0 / self.control_rate_hz
+        # Chassis control mode (canbridge /vehicle/status/control_mode). When
+        # the remote e-stop flips the Hunter to REMOTE/joy, the chassis ignores
+        # our CAN commands — but the bridge used to keep integrating
+        # _target_steering from policy actions, so the virtual steering state
+        # (obs[0], the BEV wheels) wound away from the frozen real vehicle and
+        # snapped on resume. Freeze integration unless AUTONOMOUS. Defaults
+        # True so sim (which may not publish a mode before engage) still works.
+        self._control_mode_autonomous: bool = True
 
         # ----- pub / sub -----
         self.pub_control = self.create_publisher(Control, "/control/command/control_cmd", 1)
@@ -546,6 +554,9 @@ class RLBridgeNode(Node):
         self.create_subscription(Bool, "/planning/lane_reference/drive_enabled", self._on_drive, 1)
         self.create_subscription(
             Bool, "/planning/lane_reference/drive_direction", self._on_drive_direction, 1
+        )
+        self.create_subscription(
+            ControlModeReport, "/vehicle/status/control_mode", self._on_control_mode, 10
         )
 
         # Runtime-tunable params so we can A/B-test without restarting the
@@ -730,6 +741,15 @@ class RLBridgeNode(Node):
     def _on_drive(self, msg: Bool):
         self._drive_enabled = bool(msg.data)
 
+    def _on_control_mode(self, msg: ControlModeReport):
+        autonomous = msg.mode == ControlModeReport.AUTONOMOUS
+        if autonomous != self._control_mode_autonomous:
+            self.get_logger().info(
+                f"chassis control mode -> {'AUTONOMOUS' if autonomous else 'MANUAL/REMOTE (e-stop?)'}"
+                f" — steering integration {'resumed' if autonomous else 'frozen to measured'}"
+            )
+        self._control_mode_autonomous = autonomous
+
     def _on_drive_direction(self, msg: Bool):
         new_reverse = bool(msg.data)
         if new_reverse != self._drive_reverse:
@@ -908,13 +928,16 @@ class RLBridgeNode(Node):
             else:
                 self._reverse_steer_rate_ema = 0.0
 
-        if self._drive_enabled:
+        if self._drive_enabled and self._control_mode_autonomous:
             self._target_steering = float(
                 np.clip(self._target_steering + steering_rate * self._dt, -self.max_steering, self.max_steering)
             )
         else:
-            # No goal yet -- don't pre-commit the steering. Track the measured
-            # tire angle so the first commanded angle on drive-enable is the
+            # No goal yet, or the chassis is not executing our commands
+            # (remote e-stop -> REMOTE mode). Don't pre-commit / keep
+            # integrating the steering: track the measured tire angle so the
+            # virtual steering state (obs[0], BEV) stays glued to the real
+            # vehicle and the first commanded angle on (re-)engage is the
             # actual current angle, avoiding a step change.
             self._target_steering = float(self._steering)
             velocity_cmd = 0.0
