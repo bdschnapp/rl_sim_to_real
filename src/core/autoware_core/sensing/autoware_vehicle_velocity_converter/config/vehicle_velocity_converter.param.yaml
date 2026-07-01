@@ -1,6 +1,13 @@
 /**:
   ros__parameters:
+    # Scale stays 1.0: the CAN-unit calibration (1.88, tape-measured 2026-07-01)
+    # is applied at the source in canbridge (SPEED_SCALE), symmetrically with the
+    # command path, so every consumer of velocity_status sees map-frame m/s.
     speed_scale_factor: 1.0  # [.]
-    velocity_stddev_xx: 0.2  # [m/s]
+    # 0.05 (was 0.2): at our 0.5 m/s operating speed a 0.2 stddev told the EKF
+    # wheel speed was +-40% noise, so it barely used it and the pose lagged the
+    # robot by the sensing delay. With the calibrated scale the feedback is good
+    # to a few percent; trust it so dead-reckoning carries the NDT delay window.
+    velocity_stddev_xx: 0.05  # [m/s]
     angular_velocity_stddev_zz: 0.1  # [rad/s]
     frame_id: base_link

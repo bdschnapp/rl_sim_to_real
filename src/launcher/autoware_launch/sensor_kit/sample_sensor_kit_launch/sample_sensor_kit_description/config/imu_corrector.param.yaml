@@ -3,6 +3,12 @@
     angular_velocity_stddev_xx: 0.00339
     angular_velocity_stddev_yy: 0.00339
     angular_velocity_stddev_zz: 0.00339
-    angular_velocity_offset_x: -0.005799
-    angular_velocity_offset_y: -0.007148
-    angular_velocity_offset_z: -0.001499
+    # Offsets are SUBTRACTED by imu_corrector (out = raw - offset). The previous
+    # values (-0.005799/-0.007148/-0.001499) were the raw-bias measurement entered
+    # with the wrong sign, so the "correction" ADDED a fake bias (z: +0.086 deg/s
+    # ~= 5 deg/min of dead-reckoned yaw drift). Measured 2026-07-01 at standstill:
+    # the WT905 raw gyro reads exactly 0 (internal zero-clamp), so the correct
+    # offsets are zero.
+    angular_velocity_offset_x: 0.0
+    angular_velocity_offset_y: 0.0
+    angular_velocity_offset_z: 0.0

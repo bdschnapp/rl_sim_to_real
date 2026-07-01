@@ -15,6 +15,14 @@ class CANParser(Node):
     HUNTER_MOTION_STATE_ID = 0x221
     # Ackermann wheelbase [m]; must match vehicle_info wheel_base (0.65).
     WHEEL_BASE_M = 0.65
+    # The chassis CAN speed field is NOT mm/s: calibrated 2026-07-01 with a
+    # tape-measured 16 ft straight drive. Raw/1000 under-read distance 1.77x
+    # vs tape and 1.88x vs the NDT map frame (steady-state cruise ratio 1.87).
+    # We calibrate to the MAP frame: that is what the EKF fuses and what the
+    # RL bridge observes, so map-consistent odometry is what kills the
+    # dead-reckoning lag. Applied symmetrically to feedback (raw -> m/s) and
+    # commands (m/s -> CAN units) so commanded speeds are executed 1:1.
+    SPEED_SCALE = 1.88
     HUNTER_MODE_STANDBY = 0x00
     HUNTER_MODE_CAN_CONTROL = 0x01
     HUNTER_MODE_REMOTE = 0x02
@@ -102,7 +110,7 @@ class CANParser(Node):
             self.speedFeedback = (payload[0] << 8) | payload[1]
             if self.speedFeedback >= 0x8000:
                 self.speedFeedback -= 0x10000
-            self.speedFeedback /= 1000  # in m/s
+            self.speedFeedback = self.speedFeedback / 1000 * self.SPEED_SCALE  # in m/s (map frame)
 
             self.steeringFeedback = (payload[6] << 8) | payload[7]
             if self.steeringFeedback >= 0x8000:
@@ -135,8 +143,12 @@ class CANParser(Node):
         else:
             self.can_publisher.publish(self.sendMovment)
 
-    # Hard safety cap: robot must never drive faster than this in either direction.
-    MAX_SPEED_MPS = 0.2
+    # Hard safety cap in map-frame m/s: robot must never drive faster than this
+    # in either direction. 0.6 allows the RL models' 0.5 m/s operating speed
+    # with margin. (Before the SPEED_SCALE calibration this was 0.2 in CHASSIS
+    # units, which actually executed ~0.38 map-m/s — every autonomous run was
+    # silently 25% slower than the policy expected.)
+    MAX_SPEED_MPS = 0.6
 
     def controllerCallback(self, msg):
         velocity = msg.longitudinal.velocity          # m/s
@@ -147,8 +159,8 @@ class CANParser(Node):
         elif velocity < -self.MAX_SPEED_MPS:
             velocity = -self.MAX_SPEED_MPS
 
-        max_speed = 200  # software speed limit (CAN units; hardware max is ±1500)
-        self.toSendSpeed = min(abs(int(velocity * 1000)), max_speed)
+        max_speed = 320  # CAN units = MAX_SPEED_MPS/SPEED_SCALE*1000 (hardware max ±1500)
+        self.toSendSpeed = min(abs(int(velocity * 1000 / self.SPEED_SCALE)), max_speed)
         if velocity < 0:
             self.toSendSpeed = -self.toSendSpeed
 
