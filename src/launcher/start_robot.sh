@@ -180,6 +180,24 @@ fi
 echo
 echo "→ Launching electrans_robot_real (map=$MAP_PATH, rviz=$LAUNCH_RVIZ, control/RL=$CONTROL, perception=$LAUNCH_PERCEPTION, trailer=$TRAILER)..."
 echo
+
+# Deprioritize RViz below the sensing/localization pipeline. The Jetson runs
+# CPU-saturated with the full stack + RViz, so scheduler priority decides which
+# consumer lags — and RViz is the only one that can safely lag (it just renders
+# slower under contention). Positive niceness needs no root. Retries because
+# RViz takes a while to come up (and respawns).
+if [ "$LAUNCH_RVIZ" = "true" ]; then
+    (
+        for _ in 1 2 3 4 5 6; do
+            sleep 20
+            RPIDS=$(pgrep -x rviz2 || true)
+            if [ -n "$RPIDS" ]; then
+                renice -n 15 -p $RPIDS >/dev/null 2>&1
+            fi
+        done
+    ) &
+fi
+
 exec env FASTDDS_BUILTIN_TRANSPORTS=UDPv4 \
     SDL_VIDEODRIVER=dummy \
     SDL_AUDIODRIVER=dummy \

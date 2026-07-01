@@ -21,7 +21,12 @@
       # for Pose measurement
       pose_additional_delay: 0.0
       pose_measure_uncertainty_time: 0.01
-      pose_smoothing_steps: 5
+      # 2 (was 5): smoothing_steps spreads each NDT correction over N predict
+      # ticks. At the new 20 Hz predict rate, 5 steps = 250 ms of correction
+      # smearing, which showed up as extra pose lag in tight turns (large
+      # innovations absorbed slowly -> the RL policy over-steered mid-turn).
+      # 2 @ 20 Hz = 100 ms, the same temporal smear as the stock 5 @ 50 Hz.
+      pose_smoothing_steps: 2
       pose_gate_dist: 49.5 # corresponds to significance level = 10^-10
 
     twist_measurement:
