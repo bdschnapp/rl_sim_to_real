@@ -750,9 +750,18 @@ class RLBridgeNode(Node):
         #   2. Sim resets (e.g. user re-publishes /initialpose mid-run for
         #      A/B testing). The sim resets the vehicle's tire angle to 0,
         #      so a large gap means the bridge is integrating stale state.
-        # Threshold 0.15 rad (~8.6°) — well above the per-tick steering
-        # rate cap so it won't trip during normal operation.
-        if abs(self._target_steering - self._steering) > 0.15:
+        # Threshold 0.40 rad (was 0.15): with the 2026-07-01 steering-feedback
+        # calibration the measured angle is HONEST, so during fast maneuvers it
+        # lags the target by (steer_rate x servo lag) ~ 0.2+ rad. At 0.15 this
+        # guard fired mid-maneuver, snapping the integrator back to the lagging
+        # measurement every few ticks -> limit-cycle oscillation. (It never
+        # fired before the calibration only because measured read 1.32x target,
+        # peaking at 0.139 gap — coincidentally just under 0.15.) 0.40 is only
+        # reachable by a genuine reset/takeover, its actual purpose.
+        if abs(self._target_steering - self._steering) > 0.40:
+            self.get_logger().warn(
+                f"steering re-seed: target {self._target_steering:+.3f} -> "
+                f"measured {self._steering:+.3f} (reset/takeover?)")
             self._target_steering = self._steering
             # Big state jump (e.g. sim reset via /initialpose) — also
             # re-seed the Smith Predictor's shadows so they don't carry
