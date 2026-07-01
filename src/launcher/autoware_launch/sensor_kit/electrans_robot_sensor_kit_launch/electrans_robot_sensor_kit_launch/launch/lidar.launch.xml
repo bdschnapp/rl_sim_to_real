@@ -22,7 +22,11 @@
       <push-ros-namespace namespace="front"/>
       <include file="$(find-pkg-share electrans_robot_sensor_launch)/launch/robosense_Helios.launch.xml">
         <arg name="launch_driver" value="$(var launch_driver)"/>
-        <arg name="max_range" value="150.0"/>
+        <!-- 25 m, not the Helios' 150 m: indoor lab. Range-cropping at the driver
+             shrinks every downstream stage (crop/distortion/ring-outlier/concat/NDT).
+             At 150 m the Jetson pipeline queued up ~2 s of latency and the EKF
+             discarded every NDT pose ("Pose delay exceeds the compensation limit"). -->
+        <arg name="max_range" value="25.0"/>
         <arg name="frame_id" value="rslidar_front"/>
         <arg name="output_topic" value="/rslidar_points_front"/>
         <arg name="return_mode" value="Strongest"/>

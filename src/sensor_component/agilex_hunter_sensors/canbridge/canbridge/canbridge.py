@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+import math
+
 import rclpy
 import time
 from rclpy.node import Node
@@ -11,6 +13,8 @@ from autoware_vehicle_msgs.msg import ControlModeReport, SteeringReport, Velocit
 class CANParser(Node):
     HUNTER_SYSTEM_STATE_ID = 0x211
     HUNTER_MOTION_STATE_ID = 0x221
+    # Ackermann wheelbase [m]; must match vehicle_info wheel_base (0.65).
+    WHEEL_BASE_M = 0.65
     HUNTER_MODE_STANDBY = 0x00
     HUNTER_MODE_CAN_CONTROL = 0x01
     HUNTER_MODE_REMOTE = 0x02
@@ -112,6 +116,12 @@ class CANParser(Node):
             toSendVelocity.header.stamp = self.get_clock().now().to_msg()
             toSendVelocity.header.frame_id = 'base_link'
             toSendVelocity.longitudinal_velocity = self.speedFeedback
+            # Kinematic yaw rate from steering feedback. Downstream twist
+            # consumers (lidar deskew, concat motion compensation, gyro-odom
+            # fallback) read this via vehicle_velocity_converter's angular.z;
+            # leaving it 0 made them treat every turn as straight-line motion.
+            toSendVelocity.heading_rate = (
+                self.speedFeedback * math.tan(self.steeringFeedback) / self.WHEEL_BASE_M)
             toSendSteering.steering_tire_angle = self.steeringFeedback
             self.SteeringPublisher.publish(toSendSteering)
             self.VelocityPublisher.publish(toSendVelocity)
