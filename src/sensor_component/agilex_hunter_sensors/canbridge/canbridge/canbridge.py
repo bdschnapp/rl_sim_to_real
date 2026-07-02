@@ -15,14 +15,15 @@ class CANParser(Node):
     HUNTER_MOTION_STATE_ID = 0x221
     # Ackermann wheelbase [m]; must match vehicle_info wheel_base (0.65).
     WHEEL_BASE_M = 0.65
-    # The chassis CAN speed field is NOT mm/s: calibrated 2026-07-01 with a
-    # tape-measured 16 ft straight drive. Raw/1000 under-read distance 1.77x
-    # vs tape and 1.88x vs the NDT map frame (steady-state cruise ratio 1.87).
-    # We calibrate to the MAP frame: that is what the EKF fuses and what the
-    # RL bridge observes, so map-consistent odometry is what kills the
-    # dead-reckoning lag. Applied symmetrically to feedback (raw -> m/s) and
-    # commands (m/s -> CAN units) so commanded speeds are executed 1:1.
-    SPEED_SCALE = 1.88
+    # The chassis CAN speed field is NOT mm/s: calibrated 2026-07-01 with
+    # tape-measured 16 ft straight drives. We calibrate to the MAP frame
+    # (NDT distance / raw wheel distance): that is what the EKF fuses and
+    # what the RL bridge observes, so map-consistent odometry is what kills
+    # the dead-reckoning lag. 1.804 comes from the second, cleaner drive
+    # (NDT 4.98 m / raw 2.76 m); the first drive gave 1.88. Applied
+    # symmetrically to feedback (raw -> m/s) and commands (m/s -> CAN units)
+    # so commanded speeds are executed 1:1.
+    SPEED_SCALE = 1.804
     # The CAN steering field is NOT milli-rad of tire angle either: calibrated
     # 2026-07-01 with a constant-steering full circle (gyro/NDT agreed on 362
     # deg within 0.5%). Reported 0.637 "rad" drove a 1.46 m radius turn ->
@@ -168,7 +169,7 @@ class CANParser(Node):
         elif velocity < -self.MAX_SPEED_MPS:
             velocity = -self.MAX_SPEED_MPS
 
-        max_speed = 320  # CAN units = MAX_SPEED_MPS/SPEED_SCALE*1000 (hardware max ±1500)
+        max_speed = 333  # CAN units = MAX_SPEED_MPS/SPEED_SCALE*1000 (hardware max ±1500)
         self.toSendSpeed = min(abs(int(velocity * 1000 / self.SPEED_SCALE)), max_speed)
         if velocity < 0:
             self.toSendSpeed = -self.toSendSpeed
