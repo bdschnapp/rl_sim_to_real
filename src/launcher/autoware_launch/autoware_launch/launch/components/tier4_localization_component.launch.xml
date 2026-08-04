@@ -1,6 +1,7 @@
 <?xml version="1.0"?>
 <launch>
   <arg name="loc_config_path" default="$(find-pkg-share autoware_launch)/config/localization"/>
+  <arg name="localization_mode" default="2d" description="2d = walls-only slab map: z-crop the scan to the wall band + tight init z/roll/pitch (flat floor). 3d = full map with ground kept (real elevation): no z-crop, wide init z/roll/pitch. Comes from the map folder's map_metadata.yaml via start_robot.sh."/>
   <arg name="pose_source" default="ndt" description="select pose_estimator: ndt, yabloc, eagleye"/>
   <arg name="twist_source" default="gyro_odom" description="select twist_estimator. gyro_odom, eagleye"/>
   <!-- Concatenated cloud (base_link, motion-compensated, ~3.5 Hz). Do NOT switch
@@ -58,7 +59,7 @@
       <arg name="ndt_scan_matcher/ndt_scan_matcher_param_path" value="$(var loc_config_path)/ndt_scan_matcher/ndt_scan_matcher.param.yaml"/>
       <arg
         name="ndt_scan_matcher/pointcloud_preprocessor/crop_box_filter_measurement_range_param_path"
-        value="$(var loc_config_path)/ndt_scan_matcher/pointcloud_preprocessor/crop_box_filter_measurement_range.param.yaml"
+        value="$(var loc_config_path)/ndt_scan_matcher/pointcloud_preprocessor/crop_box_filter_measurement_range_$(var localization_mode).param.yaml"
       />
       <arg
         name="ndt_scan_matcher/pointcloud_preprocessor/voxel_grid_downsample_filter_param_path"
@@ -101,5 +102,7 @@
        particle covariance + AUTO). Lives here, in the always-launched
        localization component, rather than in electrans_rl_bridge.launch.xml, so
        it runs even when the RL bridge is disabled (RL=0 / control:=false). -->
-  <node pkg="electrans_rl_bridge" exec="initialpose_shim" name="initialpose_shim" output="screen"/>
+  <node pkg="electrans_rl_bridge" exec="initialpose_shim" name="initialpose_shim" output="screen">
+    <param name="localization_mode" value="$(var localization_mode)"/>
+  </node>
 </launch>

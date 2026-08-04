@@ -6,10 +6,13 @@
 #   ./src/launcher/start_robot.sh trailer:=true         # real robot + trailer
 #   ./src/launcher/start_robot.sh sim:=true             # sim (RViz), trailer on
 #   ./src/launcher/start_robot.sh sim:=true trailer:=false
+#   ./src/launcher/start_robot.sh debug:=true            # + BEV debug rendering
 #
 #   sim:=false (default) → real robot: bring up CAN, then
 #                          electrans_robot_real.launch.xml.
 #   sim:=true            → planning_simulator.launch.xml (no CAN, RViz on).
+#   debug:=false (default)  → RL-bridge BEV rendering OFF (saves Jetson CPU).
+#                             debug:=true re-enables /rl_bridge/bev_image.
 #   trailer:=false (default for real) / trailer:=true
 #                          → single switch for ALL trailer subsystems:
 #                            lidar hitch-angle estimator + trailer self-filter
@@ -30,11 +33,13 @@ set -eo pipefail  # NOT -u: ROS setup scripts trip nounset
 # ----- parse ROS-style args (name:=value) ------------------------------------
 SIM="false"
 TRAILER=""   # empty → default per-mode below (real: false, sim: true)
+DEBUG="false"
 for arg in "$@"; do
     case "$arg" in
         sim:=*)     SIM="${arg#sim:=}" ;;
         trailer:=*) TRAILER="${arg#trailer:=}" ;;
-        *) echo "WARN: ignoring unrecognised arg '$arg' (expected sim:=… / trailer:=…)" >&2 ;;
+        debug:=*)   DEBUG="${arg#debug:=}" ;;
+        *) echo "WARN: ignoring unrecognised arg '$arg' (expected sim:=… / trailer:=… / debug:=…)" >&2 ;;
     esac
 done
 # Per-mode trailer default if not given explicitly.
@@ -48,6 +53,26 @@ fi
 ACTION_SPACE="${ACTION_SPACE:-stop_signal}"   # fixed_speed | variable_speed
 CONTROL_RATE_HZ="${CONTROL_RATE_HZ:-10.0}"
 DEFAULT_VELOCITY_MPS="${DEFAULT_VELOCITY_MPS:-0.6}"
+# Arrival gate: drive_enabled latches false within this distance of the goal.
+GOAL_REACHED_DISTANCE_M="${GOAL_REACHED_DISTANCE_M:-0.5}"
+# Controller at the predict seam: td3 (RL policies) or pure_pursuit (classical).
+CONTROLLER="${CONTROLLER:-td3}"
+# Deployment speed caps (m/s). Reverse < forward by design; raise REV_SPEED_MAX
+# in sim if 0.4 feels too slow (default_velocity_mps is clamped to these).
+FWD_SPEED_MAX="${FWD_SPEED_MAX:-0.8}"
+REV_SPEED_MAX="${REV_SPEED_MAX:-0.4}"
+# Debug rendering. The RL bridge renders a 32x32 BEV of the env on its own timer
+# and publishes /rl_bridge/bev_image purely for inspection — nothing in the
+# control path reads it. On the CPU-saturated Jetson that render is dead weight
+# unless someone is actually looking at it, so it is OFF by default and
+# debug:=true turns it back on. (Sets bev_publish_rate_hz; 0 makes
+# rl_bridge_node skip creating the timer entirely. The adapter still builds its
+# BEV env at construction — this removes the per-tick render, not the setup.)
+if [ "$DEBUG" = "true" ]; then
+    BEV_RATE="${BEV_RATE:-4.0}"
+else
+    BEV_RATE="0.0"
+fi
 
 # Real-robot CAN config.
 CAN_IFACE="${CAN_IFACE:-can1}"
@@ -75,6 +100,18 @@ WORKSPACE_ROOT="${WORKSPACE_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 # maps/ so it travels with the workspace (desktop + Jetson). Override MAP_PATH=...
 # to point elsewhere.
 MAP_PATH="${MAP_PATH:-$WORKSPACE_ROOT/maps/tractor_trailer_rl_lab_map}"
+
+# Localization mode: "2d" (walls-only slab map: z-crop scan + tight init
+# z/roll/pitch) or "3d" (full map with ground/elevation: no z-crop, wide init).
+# Priority: LOC_MODE env override > $MAP_PATH/map_metadata.yaml > default 2d.
+if [ -z "${LOC_MODE:-}" ] && [ -f "$MAP_PATH/map_metadata.yaml" ]; then
+    LOC_MODE=$(sed -n 's/^localization_mode:[[:space:]]*//p' "$MAP_PATH/map_metadata.yaml" | tr -d '[:space:]"'"'"'')
+fi
+LOC_MODE="${LOC_MODE:-2d}"
+case "$LOC_MODE" in
+    2d|3d) ;;
+    *) echo "ERROR: LOC_MODE must be '2d' or '3d' (got '$LOC_MODE')" >&2; exit 1 ;;
+esac
 
 # Workspace root exported so the launch files resolve in-repo assets (deployed
 # models under lab_models_ttrl_deploy/, vendored map under maps/) via
@@ -108,14 +145,14 @@ if [ ! -f "$WS_SETUP" ]; then
 fi
 source "$WS_SETUP"
 echo "✓ Sourced $WS_SETUP"
-echo "✓ Mode: sim=$SIM  trailer=$TRAILER  (ELECTRANS_TRAILER=$ELECTRANS_TRAILER)"
+echo "✓ Mode: sim=$SIM  trailer=$TRAILER  debug=$DEBUG (bev_rate=$BEV_RATE)  (ELECTRANS_TRAILER=$ELECTRANS_TRAILER)"
 
 # =============================================================================
 # SIM path — no CAN, no sensors; planning_simulator brings up RViz.
 # =============================================================================
 if [ "$SIM" = "true" ]; then
     echo
-    echo "→ Launching planning_simulator (map=$MAP_PATH, trailer=$TRAILER)..."
+    echo "→ Launching planning_simulator (map=$MAP_PATH, trailer=$TRAILER, debug=$DEBUG)..."
     echo
     exec env SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
         TORCHDYNAMO_DISABLE=1 TORCH_COMPILE_DISABLE=1 PYTORCH_NO_TRITON=1 \
@@ -126,7 +163,12 @@ if [ "$SIM" = "true" ]; then
         trailer:="$TRAILER" \
         action_space:="$ACTION_SPACE" \
         control_rate_hz:="$CONTROL_RATE_HZ" \
-        default_velocity_mps:="$DEFAULT_VELOCITY_MPS"
+        default_velocity_mps:="$DEFAULT_VELOCITY_MPS" \
+    goal_reached_distance_m:="$GOAL_REACHED_DISTANCE_M" \
+    controller:="$CONTROLLER" \
+    bev_publish_rate_hz:="$BEV_RATE" \
+    bridge_velocity_max:="$FWD_SPEED_MAX" \
+    bridge_velocity_max_reverse:="$REV_SPEED_MAX"
 fi
 
 # =============================================================================
@@ -178,7 +220,7 @@ if [ "$AUTO_CAN_UP" = "1" ]; then
 fi
 
 echo
-echo "→ Launching electrans_robot_real (map=$MAP_PATH, rviz=$LAUNCH_RVIZ, control/RL=$CONTROL, perception=$LAUNCH_PERCEPTION, trailer=$TRAILER)..."
+echo "→ Launching electrans_robot_real (map=$MAP_PATH, loc_mode=$LOC_MODE, rviz=$LAUNCH_RVIZ, control/RL=$CONTROL, perception=$LAUNCH_PERCEPTION, trailer=$TRAILER, debug=$DEBUG)..."
 echo
 
 # Deprioritize RViz below the sensing/localization pipeline. The Jetson runs
@@ -207,6 +249,7 @@ exec env FASTDDS_BUILTIN_TRANSPORTS=UDPv4 \
     ELECTRANS_TRAILER="$TRAILER" ELECTRANS_REPO="$ELECTRANS_REPO" \
     ros2 launch autoware_launch electrans_robot_real.launch.xml \
     map_path:="$MAP_PATH" \
+    localization_mode:="$LOC_MODE" \
     e2e_rl_path:="$E2E_RL_PATH" \
     rviz:="$LAUNCH_RVIZ" \
     perception:="$LAUNCH_PERCEPTION" \
@@ -214,4 +257,9 @@ exec env FASTDDS_BUILTIN_TRANSPORTS=UDPv4 \
     trailer:="$TRAILER" \
     action_space:="$ACTION_SPACE" \
     control_rate_hz:="$CONTROL_RATE_HZ" \
-    default_velocity_mps:="$DEFAULT_VELOCITY_MPS"
+    default_velocity_mps:="$DEFAULT_VELOCITY_MPS" \
+    goal_reached_distance_m:="$GOAL_REACHED_DISTANCE_M" \
+    controller:="$CONTROLLER" \
+    bev_publish_rate_hz:="$BEV_RATE" \
+    bridge_velocity_max:="$FWD_SPEED_MAX" \
+    bridge_velocity_max_reverse:="$REV_SPEED_MAX"

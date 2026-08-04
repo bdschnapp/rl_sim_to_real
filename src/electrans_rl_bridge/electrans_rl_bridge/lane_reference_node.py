@@ -78,7 +78,12 @@ class LaneReferenceNode(Node):
         self.declare_parameter("lanelet2_map_file", "lanelet2_map.osm")
         self.declare_parameter("forward_horizon_m", 50.0)
         self.declare_parameter("centerline_resolution_m", 0.5)
-        self.declare_parameter("goal_reached_distance_m", 2.0)
+        # Arrival gate (backstop; the stop_signal policy does the real learned
+        # stop). 0.5 m — was 2.0, which stopped the truck visibly short of the
+        # goal. Once within this distance the reached state LATCHES until the
+        # next goal (otherwise a stop that glides past the gate re-enables
+        # drive in the latched direction and the truck runs away from the goal).
+        self.declare_parameter("goal_reached_distance_m", 0.5)
         self.declare_parameter("publish_rate_hz", 10.0)
 
         self.map_path = self.get_parameter("map_path").value
@@ -151,6 +156,11 @@ class LaneReferenceNode(Node):
         # None means "no goal yet, or first tick since a new goal was set —
         # decide on the next tick where we have an active lanelet".
         self._goal_drive_reverse: Optional[bool] = None
+        # Latched by the arrival gate; cleared when a new goal arrives.
+        self._goal_reached: bool = False
+        # Which side of the goal station the ego approached from (sign of
+        # s_ego - s_goal at goal-set time); a sign flip = crossed the slice.
+        self._goal_pass_side = None
         # Track whether we've already logged the "goal not on ego's lanelet"
         # warning so we don't spam the console every tick while the user
         # leaves a stale goal in a non-adjacent lanelet.
@@ -188,6 +198,8 @@ class LaneReferenceNode(Node):
 
     def _on_goal(self, msg: PoseStamped):
         self._goal_pose = (msg.pose.position.x, msg.pose.position.y)
+        self._goal_reached = False
+        self._goal_pass_side = None
         # New goal -> reset the off-lanelet warning latch so the user gets a
         # fresh warning if this goal also lands in a non-adjacent lanelet.
         self._warned_goal_off_lanelet = False
@@ -414,7 +426,33 @@ class LaneReferenceNode(Node):
             ex, ey, _ = self._ego_pose
             gx, gy = self._goal_pose
             dist = math.hypot(ex - gx, ey - gy)
-            drive = dist > self.goal_reached_distance_m
+            # Arrival = entering (or crossing between ticks) a
+            # goal_reached_distance_m-thick SLICE of the lane at the goal's
+            # arc-length station. A purely radial gate misses when the vehicle
+            # tracks offset toward the lane edge and sails past the goal
+            # (Ben, 2026-07-30). Radial hit kept as fallback for goals off the
+            # active lanelet.
+            if not self._goal_reached:
+                reached, why = False, ""
+                if dist <= self.goal_reached_distance_m:
+                    reached, why = True, f"radial dist {dist:.2f} m"
+                else:
+                    try:
+                        ds = (self._arc_length_on(active, ex, ey)
+                              - self._arc_length_on(active, gx, gy))
+                        if abs(ds) <= self.goal_reached_distance_m / 2.0:
+                            reached, why = True, f"lane slice |Δs| {abs(ds):.2f} m"
+                        elif self._goal_pass_side is None:
+                            self._goal_pass_side = math.copysign(1.0, ds)
+                        elif ds * self._goal_pass_side < 0.0:
+                            reached, why = True, f"crossed goal station (Δs {ds:.2f} m)"
+                    except Exception as e:
+                        self.get_logger().warn(f"slice gate failed ({e}); radial only", once=True)
+                if reached:
+                    self._goal_reached = True
+                    self.get_logger().info(
+                        f"Goal reached ({why}); drive disabled until the next goal")
+            drive = not self._goal_reached
         self._publish_drive(drive)
 
         # Direction was decided above (latched once per goal; recomputing every

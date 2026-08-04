@@ -1,0 +1,28 @@
+/**:
+# 2D-map mode (walls-only slab maps like tractor_trailer_rl_lab_map).
+# Selected via the localization_mode launch arg; the 3d variant sits next to
+# this file. See map_metadata.yaml in the map folder / start_robot.sh.
+  ros__parameters:
+    input_frame: "base_link"
+    output_frame: "base_link"
+    min_x: -60.0
+    max_x: 60.0
+    min_y: -60.0
+    max_y: 60.0
+    # Z-band crop (base_link frame) to MATCH the walls-only new map. The
+    # tractor_trailer_rl_lab_map pcd had floor+ceiling removed (build_pcd_clean.py
+    # ZLO/ZHI = -0.35..1.7 in the lidar/map frame), but the live scan is full of
+    # floor+ceiling returns — that mismatch (a huge floor sheet with no map
+    # correspondence) dragged NDT to a WRONG pose (reproduced on the known-good
+    # Electrans stack too, so it's the map, not the software). Flat floor/ceiling
+    # add no x/y/yaw uniqueness anyway (the walls do), so we make scan and map
+    # consistent by dropping them here. Lidar is +0.305 m above base_link, so the
+    # map's -0.35..1.7 (lidar) band ≈ 0.0..2.0 in base_link. min_z=0.0 clears the
+    # floor (~-0.2 base_link) with margin.
+    # NOTE: this band is specific to the walls-only map. A floor-ful map (e.g. the
+    # MVSL baseline) must revert these to the wide -30..50 or it would crop the
+    # scan floor that map needs. Values to be confirmed against a live z-histogram.
+    min_z: 0.0
+    max_z: 2.0
+    negative: False
+    processing_time_threshold_sec: 0.01

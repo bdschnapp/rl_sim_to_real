@@ -19,6 +19,10 @@
   <arg name="control_rate_hz" default="10.0"/>
   <arg name="default_velocity_mps" default="0.6"/>
   <arg name="forward_horizon_m" default="50.0"/>
+  <!-- Debug BEV render/publish rate; 0 disables the render entirely. Declared
+       here so start_robot.sh's debug:= flag can drive it in sim too (the real
+       launch has its own copy of this arg). -->
+  <arg name="bev_publish_rate_hz" default="4.0"/>
   <!-- Relay the debug BEV (/rl_bridge/bev_image) onto the RViz
        RecognitionResultOnImage panel topic. Default true in sim (no real
        traffic-light recognition competes for that topic here), so the BEV
@@ -114,6 +118,7 @@
       <arg name="control_rate_hz" value="$(var control_rate_hz)"/>
       <arg name="default_velocity_mps" value="$(var default_velocity_mps)"/>
       <arg name="forward_horizon_m" value="$(var forward_horizon_m)"/>
+      <arg name="bev_publish_rate_hz" value="$(var bev_publish_rate_hz)"/>
       <arg name="centerline_resolution_m" value="$(var centerline_resolution_m)"/>
       <arg name="world_scale" value="$(var world_scale)"/>
       <arg name="relay_bev_to_rviz_panel" value="$(var relay_bev_to_rviz_panel)"/>

@@ -10,21 +10,48 @@
     vel_lim: 50.0 # limit of velocity
     vel_rate_lim: 7.0 # limit of acceleration
     steer_lim: 1.0 # limit of steering angle
-    steer_rate_lim: 5.0 # limit of steering angle change rate
-    # TEMP (2026-06-28): actuator lag zeroed to validate the RL pipeline
-    # delay-free (the policy trained with zero lag). Reverse is non-minimum-
-    # phase / unstable and cannot absorb sim lag, so we remove it as a
-    # confound while debugging reverse. RESTORE realistic values once the
-    # pipeline is validated (then compensate lag via Smith predictor):
-    #   acc_time_delay: 0.1, acc_time_constant: 0.1, steer_time_constant: 0.05
+    # MEASURED on the real Hunter 2026-08-03 (bidirectional step response,
+    # stationary, bridge down, steering_status logged at 50 Hz; Ben visually
+    # confirmed the wheels moved). Replaces the 2026-06-28 TEMP lag-zeroing,
+    # which made sim a delay-free plant -- that is why hand-tuned pure-pursuit
+    # gains passed in sim and then oscillated on hardware.
+    #   steps +/-14.3 deg and +/-3.4 deg, both directions:
+    #     dead time  ~0.09 s  (~1 control tick: CAN + discrete loop)
+    #     tau        ~0.11 s  (small steps; peak slew 0.477 ~= step/tau, unclipped)
+    #     rate limit ~1.18 rad/s = 68 deg/s (big steps clipped here)
+    #     steady-state gain 1.0 -> STEER_SCALE calibration is correct
+    #     symmetric L/R within ~6%; crossover R*tau ~7.4 deg
+    # SPLIT (not lumped) as of the 2026-08-03 evening test. First attempt folded
+    # the 0.09 s dead time into steer_time_constant (0.20, delay 0) per the
+    # "model rate + lag, not dead time" convention. Sim then produced only STABLE
+    # oscillation where the real plant is UNSTABLE -- i.e. sim was still short of
+    # phase lag. Dead time contributes phase -w*T (linear, unbounded) whereas a
+    # first-order lag saturates at -90 deg, so lumping is optimistic:
+    #     at 1 Hz  lumped -51 deg  vs  split -67 deg
+    #     at 2 Hz  lumped -68 deg  vs  split -126 deg
+    # The dead time here is a DIGITAL TRANSPORT delay (CAN + discrete control
+    # loop), not steering mechanics, which is why it is modelled explicitly --
+    # the convention about not modelling dead time applies to the mechanical
+    # steering system, not to a networked command path.
+    #
+    # Measurement noise stays OFF: stationary localization noise was measured at
+    # 0.0885 deg yaw std / 3.7 mm position, giving only ~1 deg p2p of steering
+    # command noise through k_theta -- ~6% of the observed 16 deg p2p swing. Noise
+    # is not a factor; do not enable add_measurement_noise to chase it.
+    steer_rate_lim: 1.18 # limit of steering angle change rate (measured)
     acc_time_delay: 0.0 # dead time for the acceleration input
-    acc_time_constant: 0.01 # time constant of the 1st-order acceleration dynamics
-    steer_time_delay: 0.0
-    steer_time_constant: 0.01
+    acc_time_constant: 0.1 # time constant of the 1st-order acceleration dynamics
+    steer_time_delay: 0.09    # MEASURED transport dead time (~1 control tick)
+    steer_time_constant: 0.11 # MEASURED first-order lag (small-step, unclipped)
     steer_dead_band: 0.0 # dead band of the steering angle
     x_stddev: 0.0001 # x standard deviation for dummy covariance in map coordinate
     y_stddev: 0.0001 # y standard deviation for dummy covariance in map coordinate
-    enable_road_slope_simulation: true # if true, slopes in the lanelet map are used to apply an extra acceleration to the ego vehicle
+    # Disabled 2026-07-30: the 3D map's lanelet carries real elevations
+    # (~10% ramp) and with slope sim on, the sim vehicle stalls uphill /
+    # overspeeds downhill — Ben wants plain 2D driving in sim for now.
+    # Re-enable to preview real-ramp longitudinal behaviour (velocity_kp=4.0
+    # in the bridge was raised for exactly that load).
+    enable_road_slope_simulation: false # if true, slopes in the lanelet map are used to apply an extra acceleration to the ego vehicle
     # ---- Trailer geometry (single source of truth) -------------------------
     # Consumed by:
     #   - simple_planning_simulator (DELAY_STEER_ACC_GEARED_TRAILER dynamics)

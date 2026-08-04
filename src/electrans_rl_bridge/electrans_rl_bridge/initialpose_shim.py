@@ -49,9 +49,17 @@ FIT_SERVICE = "/map/map_height_fitter/service"
 # This is the tightened search. The yaw term only bites because the TPE was
 # patched to sample yaw ~ normal(initial_yaw, std) instead of uniform(-pi,pi)
 # (autoware_localization_util/tree_structured_parzen_estimator.cpp +
-# ndt_scan_matcher_core.cpp passing a 6th yaw element). z/roll/pitch stay tight
-# (height-fit + flat floor pin them). Widen cov if you ever init from a poor guess.
-RVIZ_PARTICLE_COVARIANCE = [
+# ndt_scan_matcher_core.cpp passing a 6th yaw element).
+#
+# Two variants, selected by the `localization_mode` ROS param (plumbed from the
+# map folder's map_metadata.yaml via start_robot.sh -> launch chain):
+#   2d — walls-only slab map, flat floor: height-fit + flat floor pin
+#        z/roll/pitch, keep them tight (0.01 -> std 0.1 m / 0.1 rad).
+#   3d — full map with real elevation (ramps): the height-fit is a downhill-
+#        biased "lowest point within ~1 m" on slopes and the floor is NOT flat,
+#        so give the TPE room to search z (0.25 -> std 0.5 m) and roll/pitch
+#        (0.0025 -> std 0.05 rad ~ 3 deg, covers the ~2-3 deg real grades).
+RVIZ_PARTICLE_COVARIANCE_2D = [
     0.25, 0.0, 0.0, 0.0, 0.0, 0.0,
     0.0, 0.25, 0.0, 0.0, 0.0, 0.0,
     0.0, 0.0, 0.01, 0.0, 0.0, 0.0,
@@ -59,17 +67,33 @@ RVIZ_PARTICLE_COVARIANCE = [
     0.0, 0.0, 0.0, 0.0, 0.01, 0.0,
     0.0, 0.0, 0.0, 0.0, 0.0, 0.12,
 ]
+RVIZ_PARTICLE_COVARIANCE_3D = [
+    0.25, 0.0, 0.0, 0.0, 0.0, 0.0,
+    0.0, 0.25, 0.0, 0.0, 0.0, 0.0,
+    0.0, 0.0, 0.25, 0.0, 0.0, 0.0,
+    0.0, 0.0, 0.0, 0.0025, 0.0, 0.0,
+    0.0, 0.0, 0.0, 0.0, 0.0025, 0.0,
+    0.0, 0.0, 0.0, 0.0, 0.0, 0.12,
+]
 
 
 class InitialPoseShim(Node):
     def __init__(self):
         super().__init__("initialpose_shim")
+        mode = self.declare_parameter("localization_mode", "2d").value
+        if mode not in ("2d", "3d"):
+            self.get_logger().error(f"localization_mode '{mode}' invalid; using 2d")
+            mode = "2d"
+        self.mode = mode
+        self.covariance = (
+            RVIZ_PARTICLE_COVARIANCE_3D if mode == "3d" else RVIZ_PARTICLE_COVARIANCE_2D
+        )
         self.cli = self.create_client(InitializeLocalization, INIT_SERVICE)
         self.fit = self.create_client(FitService, FIT_SERVICE)
         self.create_subscription(PoseWithCovarianceStamped, "/initialpose", self._on_pose, 1)
         self.get_logger().info(
-            f"initialpose_shim ready: /initialpose → height-fit ({FIT_SERVICE}) "
-            f"→ {INIT_SERVICE} (AUTO)"
+            f"initialpose_shim ready ({mode} mode): /initialpose → height-fit "
+            f"({FIT_SERVICE}) → {INIT_SERVICE} (AUTO)"
         )
 
     def _on_pose(self, msg: PoseWithCovarianceStamped):
@@ -104,7 +128,7 @@ class InitialPoseShim(Node):
             self.get_logger().warn(f"{INIT_SERVICE} unavailable; dropping pose")
             return
         # 2. Overwrite covariance with the RViz particle covariance (adaptor step 2).
-        pose.pose.covariance = RVIZ_PARTICLE_COVARIANCE
+        pose.pose.covariance = self.covariance
         req = InitializeLocalization.Request()
         req.pose_with_covariance = [pose]
         # 3. AUTO → ndt_align seeded by the height-fitted pose (adaptor step 3).

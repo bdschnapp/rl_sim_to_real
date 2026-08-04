@@ -62,4 +62,5 @@ lab_models_tractor_only/
 
 # Large debug/capture artifacts (not source)
 lab_map_capture/
+map_capture_20260730/
 .debug_bags/

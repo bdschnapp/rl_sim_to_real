@@ -1,0 +1,19 @@
+/**:
+  ros__parameters:
+    input_frame: "base_link"
+    output_frame: "base_link"
+    min_x: -60.0
+    max_x: 60.0
+    min_y: -60.0
+    max_y: 60.0
+    # 3D-map mode: NO z-band crop (stock Autoware wide limits). The map keeps
+    # ground and ceiling (e.g. tractor_trailer_rl_3d_map, 2.5 m real elevation
+    # change), so the live scan must keep its ground returns too — and a
+    # base_link-relative band like the 2d file's 0..2 m would slide with the
+    # robot on slopes, cropping structure on higher/lower ground ahead.
+    # Selected via the localization_mode launch arg (see map_metadata.yaml in
+    # the map folder / start_robot.sh).
+    min_z: -30.0
+    max_z: 50.0
+    negative: False
+    processing_time_threshold_sec: 0.01

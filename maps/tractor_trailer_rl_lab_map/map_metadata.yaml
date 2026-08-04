@@ -1,0 +1,3 @@
+# Read by start_robot.sh to pick the localization mode (see LOC_MODE there).
+# 2d = walls-only slab map: scan z-cropped to wall band, tight init z/roll/pitch.
+localization_mode: 2d

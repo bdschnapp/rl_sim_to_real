@@ -87,6 +87,13 @@ class RLBridgeNode(Node):
         #                    exceeds stop_threshold). The stop is LEARNED by the
         #                    model — the bridge just listens for it.
         self.declare_parameter("action_space", "fixed_speed")
+        # Controller backing the predict() seam: "td3" (default, the trained
+        # policies) or "pure_pursuit" (classical baseline; see
+        # pure_pursuit_policy.py). PP substitutes the model objects AFTER all
+        # env/model construction so the whole obs/action pipeline (mirror
+        # conventions, native-obs surgery, sign flips, integration) is
+        # byte-identical to the TD3 path.
+        self.declare_parameter("controller", "td3")
         # stop_signal threshold: action[1] > this ⇒ STOP (velocity → 0). Matches
         # the training-time default (stop_signal_patch threshold 0.0).
         self.declare_parameter("stop_threshold", 0.5)
@@ -119,6 +126,13 @@ class RLBridgeNode(Node):
         # dynamics) and feels visibly faster in the MVSL space, so the reverse
         # cap defaults lower than forward.
         self.declare_parameter("bridge_velocity_max_reverse", 0.4)
+        # Velocity-tracking P gain (accel = kp * (v_cmd - v)). Was hardcoded
+        # 1.0, which on a grade leaves a steady-state speed error of the full
+        # slope acceleration (g*sin(pitch)/kp): the 3D map's ~10% ramp made
+        # uphill stall and downhill run ~2.7x over (Ben, 2026-07-30). 4.0
+        # bounds the sag at ~0.25 m/s on the worst grade; still well damped
+        # at 10 Hz. Live-tunable.
+        self.declare_parameter("velocity_kp", 4.0)
         # Multiplier applied to the reverse policy's commanded steer rate
         # (and the integrated target tire angle) before publication. 1.0 =
         # pass-through. Slightly >1 compensates for ROS actuator lag that
@@ -199,6 +213,8 @@ class RLBridgeNode(Node):
                 self.get_parameter("td3_reverse_model_path_tractor_only").value
             )
         self.action_space = str(self.get_parameter("action_space").value)
+        self.controller = str(self.get_parameter("controller").value)
+        self.velocity_kp = float(self.get_parameter("velocity_kp").value)
         self.stop_threshold = float(self.get_parameter("stop_threshold").value)
         self._stop_active = False   # True while the policy is commanding a stop
         self.control_rate_hz = float(self.get_parameter("control_rate_hz").value)
@@ -514,6 +530,47 @@ class RLBridgeNode(Node):
                 "the file does not exist — running forward-only."
             )
 
+        # ----- classical controller substitution (controller:=pure_pursuit) -----
+        if self.controller == "pure_pursuit":
+            from electrans_rl_bridge.pure_pursuit_policy import PurePursuitPolicy
+            if self.action_space == "variable_speed":
+                # PP has no speed law; action[1] would be interpreted as a
+                # velocity command. Refuse rather than drive at a bogus speed.
+                raise RuntimeError(
+                    "controller:=pure_pursuit supports action_space fixed_speed "
+                    "or stop_signal only (got variable_speed)"
+                )
+            tractor_only = "TractorOnly" in self.adapter.env_class_name
+            veh = self.adapter.env.vehicle
+            wheelbase = float(veh.lf + veh.lr)
+            pp_dt = 1.0 / self.control_rate_hz   # == env physics dt (0.1 s)
+            self.model = PurePursuitPolicy(
+                reverse=False, tractor_only=tractor_only, wheelbase_m=wheelbase,
+                dt=pp_dt, action_space=self.adapter.env.action_space,
+            )
+            if self.reverse_model is not None:
+                self.reverse_model = PurePursuitPolicy(
+                    reverse=True, tractor_only=tractor_only, wheelbase_m=wheelbase,
+                    dt=pp_dt,
+                    action_space=self.adapter._reverse_env.action_space,
+                )
+            # Live-tunable gains (ros2 param set /rl_bridge_node pp_rev_k_y 0.6 ...)
+            for k, val in self.model.g.items():
+                self.declare_parameter(f"pp_fwd_{k}", float(val))
+                self.model.g[k] = float(self.get_parameter(f"pp_fwd_{k}").value)
+            if self.reverse_model is not None:
+                for k, val in self.reverse_model.g.items():
+                    self.declare_parameter(f"pp_rev_{k}", float(val))
+                    self.reverse_model.g[k] = float(self.get_parameter(f"pp_rev_{k}").value)
+            self.get_logger().info(
+                f"controller=pure_pursuit: TD3 weights replaced by classical PP "
+                f"(wheelbase {wheelbase:.2f} m, dt {pp_dt:.2f} s, "
+                f"reverse={'yes' if self.reverse_model is not None else 'no'}, "
+                f"tractor_only={tractor_only})"
+            )
+        elif self.controller != "td3":
+            raise RuntimeError(f"unknown controller '{self.controller}' (td3 | pure_pursuit)")
+
         # ----- state caches -----
         self._ego: Optional[tuple] = None        # (x, y, yaw, xd)
         self._steering: float = 0.0              # measured tire angle (rad)
@@ -591,6 +648,16 @@ class RLBridgeNode(Node):
                 elif p.name == "forward_steer_rate_sign":
                     self.forward_steer_rate_sign = float(p.value)
                     self.get_logger().info(f"forward_steer_rate_sign -> {self.forward_steer_rate_sign}")
+                elif p.name == "velocity_kp":
+                    self.velocity_kp = float(p.value)
+                    self.get_logger().info(f"velocity_kp -> {self.velocity_kp}")
+                elif p.name.startswith("pp_fwd_") and self.controller == "pure_pursuit":
+                    self.model.g[p.name[7:]] = float(p.value)
+                    self.get_logger().info(f"PP forward gains -> {self.model.g}")
+                elif p.name.startswith("pp_rev_") and self.controller == "pure_pursuit" \
+                        and self.reverse_model is not None:
+                    self.reverse_model.g[p.name[7:]] = float(p.value)
+                    self.get_logger().info(f"PP reverse gains -> {self.reverse_model.g}")
             return SetParametersResult(successful=True)
         self.add_on_set_parameters_callback(_on_set_params)
 
@@ -966,7 +1033,7 @@ class RLBridgeNode(Node):
         # signal that tracks the target velocity. Simple P controller; bridge
         # runs at control_rate_hz so this stays stable.
         current_v = self._ego[3] if self._ego is not None else 0.0
-        kp = 1.0  # accel gain in 1/s; tuned so 1 m/s error => 1 m/s^2 accel
+        kp = self.velocity_kp
         accel_lim = 2.0  # m/s^2, comfortable
         accel_cmd = float(np.clip(kp * (velocity_cmd - current_v), -accel_lim, accel_lim))
 

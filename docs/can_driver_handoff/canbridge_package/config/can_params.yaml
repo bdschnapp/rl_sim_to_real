@@ -1,0 +1,9 @@
+# CAN interface parameters
+# Set can_interface to 'can0' or 'can1'
+ros2socketcan_bridge:
+  ros__parameters:
+    can_interface: can1
+
+controller_canbridge:
+  ros__parameters:
+    can_interface: can1
